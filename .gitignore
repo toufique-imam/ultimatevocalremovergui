@@ -1,0 +1,19 @@
+.claude
+.gradle
+android/app/build
+android/build
+downloaded
+__pycache__
+__pycache__
+onnx_models
+.idea
+android/app/src/main/assets/models/
+
+# Downloaded UVR model weights
+models/**/*.pth
+models/**/*.onnx
+models/**/*.ckpt
+models/**/*.th
+models/Demucs_Models/v3_v4_repo/*.yaml
+models/**/*.part
+ptl_models

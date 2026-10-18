@@ -32,6 +32,7 @@ ALIGNMENT_TOOL = 'Alignment Tool Options'
 SINGLE_FILE = 'SINGLE_FILE'
 MULTIPLE_FILE = 'MULTI_FILE'
 MAIN_MULTIPLE_FILE = 'MAIN_MULTI_FILE'
+MAIN_INPUT_FOLDER = 'MAIN_INPUT_FOLDER'
 CHOOSE_EXPORT_FIR = 'CHOOSE_EXPORT_FIR'
 
 DUAL = "dual"
@@ -133,6 +134,14 @@ MISSING_MODEL = 'missing'
 MODEL_PRESENT = 'present'
 
 ALL_STEMS = 'All Stems'
+AUDIO_ONLY = 'Audio Only (No Video)'
+
+# How a video follows audio shortened by Trim Silence
+KEEP_VIDEO_LENGTH = 'Keep Video Length'
+CUT_VIDEO_SILENCE = 'Cut Silent Parts'
+SPEED_UP_VIDEO = 'Speed Up to Fit'
+VIDEO_FIT_OPTIONS = (KEEP_VIDEO_LENGTH, CUT_VIDEO_SILENCE, SPEED_UP_VIDEO)
+
 VOCAL_STEM = 'Vocals'
 INST_STEM = 'Instrumental'
 OTHER_STEM = 'Other'
@@ -645,6 +654,8 @@ DEFAULT_DATA = {
         'is_accept_any_input': False,
         'is_task_complete': False,
         'is_normalization': False,
+        'is_trim_silence': False,
+        'video_fit': KEEP_VIDEO_LENGTH,
         'is_use_opencl': False,
         'is_wav_ensemble': False,
         'is_create_model_folder': False,
@@ -767,6 +778,8 @@ SETTING_CHECK = ('vr_model',
                'user_code',
                'is_gpu_conversion',
                'is_normalization',
+               'is_trim_silence',
+               'video_fit',
                'is_use_opencl',
                'is_wav_ensemble',
                'help_hints_var',
@@ -790,7 +803,7 @@ NEW_LINE = "\n"
 NO_LINE = ''
 
 FFMPEG_EXT = (".aac", ".aiff", ".alac" ,".flac", ".FLAC", ".mov", ".mp4", ".MP4", 
-              ".m4a", ".M4A", ".mp2", ".mp3", "MP3", ".mpc", ".mpc8", 
+              ".m4a", ".M4A", ".mp2", ".mp3", ".MP3", ".mpc", ".mpc8", 
               ".mpeg", ".ogg", ".OGG", ".tta", ".wav", ".wave", ".WAV", ".WAVE", ".wma", ".webm", ".eac3", ".mkv", ".opus", ".OPUS")
 
 FFMPEG_MORE_EXT = (".aa", ".aac", ".ac3", ".aiff", ".alac", ".avi", ".f4v",".flac", ".flic", ".flv",
@@ -1027,6 +1040,9 @@ else:
 IS_TIME_CORRECTION_HELP = ('When checked, the output will retain the original BPM of the input.')
 SAVE_STEM_ONLY_HELP = 'Allows the user to save only the selected stem.'
 IS_NORMALIZATION_HELP = 'Normalizes output to prevent clipping.'
+IS_TRIM_SILENCE_HELP = ('Drops silent stretches (half a second or longer) from the output so the saved file only keeps the parts with sound.\n\n'
+                        '• Works with WAV, FLAC, and MP3.\n'
+                        '• Trimmed outputs no longer line up in time with the input or the other stems.')
 IS_CUDA_SELECT_HELP = "If you have more than one GPU, you can pick which one to use for processing."
 CROP_SIZE_HELP = '**Only compatible with select models only!**\n\n Setting should match training crop-size value. Leave as is if unsure.'
 IS_TTA_HELP = ('This option performs Test-Time-Augmentation to improve the separation quality.\n\n'
@@ -1139,6 +1155,23 @@ OUTPUT_FOLDER_ENTRY_HELP = (
 INPUT_FOLDER_BUTTON_HELP = (
     'Open Input Folder Button:\n'
     'Open the directory containing the selected input audio file(s).'
+)
+VIDEO_FIT_HELP = (
+    'Video Fit:\n'
+    'Trim Silence makes the audio shorter than the video. Choose how the video follows it:\n\n'
+    f'• {KEEP_VIDEO_LENGTH}: The video is left as is, so it falls out of sync after the first cut.\n'
+    f'• {CUT_VIDEO_SILENCE}: The same stretches are cut from the video, keeping picture and sound in sync.\n'
+    f'• {SPEED_UP_VIDEO}: The whole video plays faster to end with the audio.'
+)
+INPUT_FOLDER_SELECT_HELP = (
+    'Select Input Folder:\n'
+    'Process every audio and video file in a folder, subfolders included.\n'
+    'You can also drag and drop a folder onto the window.'
+)
+VIDEO_LINK_HELP = (
+    'Process Video Link:\n'
+    'Download a video from a link (any site yt-dlp supports), separate its audio\n'
+    'with the chosen model, and save the video with the chosen stem as its audio.'
 )
 OUTPUT_FOLDER_BUTTON_HELP = (
     'Open Output Folder Button:\n'
@@ -1300,6 +1333,11 @@ EXIT_HALTED_PROCESS_ERROR = 'Halting Process', 'Please wait for the application 
 EXIT_DOWNLOAD_ERROR = 'Active Download', 'Please stop the download or wait for it to complete before you exit.'
 SET_TO_DEFAULT_PROCESS_ERROR = 'Active Process', 'You cannot reset all of the application settings during an active process.'
 SET_TO_ANY_PROCESS_ERROR = 'Active Process', 'You cannot reset the application settings during an active process.'
+VIDEO_LINK_PROCESS_ERROR = 'Active Process', 'Please stop the active process or wait for it to complete before processing a video link.'
+VIDEO_LINK_NO_YT_DLP_ERROR = 'yt-dlp Not Installed', 'Processing video links requires yt-dlp.\n\nInstall it with "pip install -U yt-dlp" and restart the application.'
+VIDEO_LINK_NO_FFMPEG_ERROR = 'FFmpeg Not Found', 'Processing video links requires FFmpeg.\n\nPlease install FFmpeg and make sure it is on your PATH.'
+VIDEO_LINK_METHOD_ERROR = 'Invalid Process Method', 'Video links can only be processed with VR Architecture, MDX-Net, Demucs or Ensemble Mode.'
+VIDEO_LINK_FAILED = 'Video Link Failed'
 RESET_ALL_TO_DEFAULT_WARNING = 'Reset Settings Confirmation', 'All application settings will be set to factory default.\n\nAre you sure you wish to continue?'
 AUDIO_VERIFICATION_CHECK = lambda i, e:f'++++++++++++++++++++++++++++++++++++++++++++++++++++\n\nBroken File Removed: \n\n{i}\n\nError Details:\n\n{e}\n++++++++++++++++++++++++++++++++++++++++++++++++++++'
 INVALID_ONNX_MODEL_ERROR = 'Invalid Model', 'The file selected is not a valid MDX-Net model. Please see the error log for more information.'
@@ -1451,6 +1489,7 @@ NAME_SETTINGS_TEXT = 'Name Settings'
 NO_DEFINED_PARAMETERS_FOUND_TEXT = 'No Defined Parameters Found'
 NO_TEXT = 'No'
 NORMALIZE_OUTPUT_TEXT = 'Normalize Output'
+TRIM_SILENCE_TEXT = 'Trim Silence'
 USE_OPENCL_TEXT = 'Use OpenCL'
 NOT_ENOUGH_MODELS_TEXT = 'Not Enough Models'
 NOTIFICATION_CHIMES_TEXT = 'Notification Chimes'
@@ -1537,6 +1576,22 @@ TEMP_FILE_DELETION_TEXT = 'Temp File Deletion'
 VOCAL_SPLITTER_OPTIONS_TEXT = 'Vocal Splitter Options'
 WAVEFORM_ENSEMBLE_TEXT = 'Waveform Ensemble'
 SELECT_INPUT_TEXT = 'Select Input'
+VIDEO_LINK_TEXT = 'Process Video Link'
+SELECT_INPUT_FOLDER_TEXT = 'Select Input Folder'
+VIDEO_LINK_ENTRY_TEXT = 'Video Link'
+VIDEO_LINK_STEM_TEXT = 'Stem for Video Audio'
+VIDEO_LINK_START_TEXT = 'Download & Process'
+VIDEO_LINK_RULE = 'The video is downloaded to "Video Downloads" in the output folder.\nThe new video is saved next to the separated stems.'
+VIDEO_LINK_DOWNLOADING_TEXT = 'Downloading video...'
+VIDEO_LINK_EXTRACTING_TEXT = 'Extracting audio...'
+VIDEO_LINK_SAVING_TEXT = 'Saving video with {} audio{}...'
+VIDEO_LINK_NO_STEM_TEXT = 'No "{}" stem was saved (saved: {}), so no video was created.\n'
+VIDEO_LINK_SAMPLE_MODE_TEXT = 'Sample Mode is on, so no video was created.\n'
+VIDEO_FIT_TEXT = 'Video Fit'
+VIDEO_OPTIONS_TEXT = 'Video Options'
+VIDEO_INPUTS_TEXT = 'Video inputs selected: {}'
+VIDEO_OPTIONS_RULE = 'Videos are saved next to the separated stems,\nwith the chosen stem as their audio.'
+VIDEO_FAILED_TEXT = 'Could not create the video: {}\n'
 SELECT_OUTPUT_TEXT = 'Select Output'
 TIME_CORRECTION_TEXT = 'Time Correction'
 UVR_LIS_INFO_TEXT = 'UVR License Information'

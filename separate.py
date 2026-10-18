@@ -65,6 +65,9 @@ def clear_gpu_cache():
 warnings.filterwarnings("ignore")
 cpu = torch.device('cpu')
 
+# Outputs cut by Trim Silence: path without extension -> (kept (start, end) seconds, original length in seconds)
+trimmed_audio_ranges = {}
+
 class SeperateAttributes:
     def __init__(self, model_data: ModelData, 
                  process_data: dict, 
@@ -121,6 +124,7 @@ class SeperateAttributes:
         self.save_format = model_data.save_format
         self.is_gpu_conversion = model_data.is_gpu_conversion
         self.is_normalization = model_data.is_normalization
+        self.is_trim_silence = model_data.is_trim_silence
         self.is_primary_stem_only = model_data.is_primary_stem_only if not self.is_secondary_model else model_data.is_primary_model_primary_stem_only
         self.is_secondary_stem_only = model_data.is_secondary_stem_only if not self.is_secondary_model else model_data.is_primary_model_secondary_stem_only      
         self.is_ensemble_mode = model_data.is_ensemble_mode
@@ -390,7 +394,7 @@ class SeperateAttributes:
             sf.write(path, source, samplerate, subtype=self.wav_type_set)
 
             if is_not_ensemble:
-                save_format(path, self.save_format, self.mp3_bit_set)
+                save_format(path, self.save_format, self.mp3_bit_set, self.is_trim_silence)
 
         def save_voc_split_instrumental(stem_name, stem_source, is_inst_invert=False):
             inst_stem_name = "Instrumental (With Lead Vocals)" if stem_name == LEAD_VOCAL_STEM else "Instrumental (With Backing Vocals)"
@@ -1307,13 +1311,31 @@ def rerun_mp3(audio_file, sample_rate=44100):
 
     return librosa.load(audio_file, duration=track_length, mono=False, sr=sample_rate)[0]
 
-def save_format(audio_path, save_format, mp3_bit_set):
+def trim_silence_file(audio_path):
+    """Drops silent stretches from a saved wav, rewriting it in place"""
+
+    try:
+        wave, samplerate = sf.read(audio_path, always_2d=True)
+        keep_ranges = spec_utils.silence_keep_ranges(wave, samplerate)
+        if keep_ranges:
+            sf.write(audio_path, spec_utils.trim_silence(wave, samplerate, keep_ranges), samplerate, subtype=sf.info(audio_path).subtype)
+            # Videos made from this output cut or speed up to match (keyed without extension, as it may be converted)
+            trimmed_audio_ranges[os.path.splitext(audio_path)[0]] = [(start / samplerate, end / samplerate) for start, end in keep_ranges], len(wave) / samplerate
+    except Exception as e:
+        print(e)
+
+def save_format(audio_path, save_format, mp3_bit_set, is_trim_silence=False):
+    
+    if is_trim_silence:
+        trim_silence_file(audio_path)
     
     if not save_format == WAV:
         
         if OPERATING_SYSTEM == 'Darwin':
             FFMPEG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg')
-            pydub.AudioSegment.converter = FFMPEG_PATH
+            # Only the app bundle ships FFmpeg here; running from source uses the one on PATH
+            if os.path.isfile(FFMPEG_PATH):
+                pydub.AudioSegment.converter = FFMPEG_PATH
         
         musfile = pydub.AudioSegment.from_wav(audio_path)
         

@@ -48,6 +48,11 @@ from separate import (
     SeperateDemucs, SeperateMDX, SeperateMDXC, SeperateVR,  # Model-related
     save_format, clear_gpu_cache,  # Utility functions
     cuda_available, mps_available, #directml_available,
+    trimmed_audio_ranges,
+)
+from video_link import (
+    VIDEO_DOWNLOADS_FOLDER, VideoLinkError, is_url, is_yt_dlp_installed, find_ffmpeg,
+    download_video, extract_audio, find_stem_files, select_stems, make_video, is_video_file,
 )
 from playsound import playsound
 from typing import List
@@ -308,6 +313,8 @@ def drop(event, accept_mode: str = 'files'):
             root.inputPaths = tuple(path)
             root.process_input_selections()
             root.update_inputPaths()
+            if not root.inputPaths:
+                root.command_Text.write('\nNo supported audio or video files in the dropped item(s).\n')
         elif accept_mode in [FILE_1, FILE_2]:
             if len(path) == 2:
                 root.select_audiofile(path[0])
@@ -346,6 +353,7 @@ class ModelData():
         self.is_denoise_model = True if root.denoise_option_var.get() == DENOISE_M and os.path.isfile(DENOISER_MODEL_PATH) else False
         self.is_gpu_conversion = 0 if root.is_gpu_conversion_var.get() else -1
         self.is_normalization = root.is_normalization_var.get()#
+        self.is_trim_silence = root.is_trim_silence_var.get()
         self.is_use_opencl = False#True if is_opencl_only else root.is_use_opencl_var.get()
         self.is_primary_stem_only = root.is_primary_stem_only_var.get()
         self.is_secondary_stem_only = root.is_secondary_stem_only_var.get()
@@ -763,6 +771,7 @@ class Ensembler():
         self.ensemble_primary_stem = ensemble_main_stem_pair[0]
         self.ensemble_secondary_stem = ensemble_main_stem_pair[2]
         self.is_normalization = root.is_normalization_var.get()
+        self.is_trim_silence = root.is_trim_silence_var.get()
         self.is_wav_ensemble = root.is_wav_ensemble_var.get()
         self.wav_type_set = root.wav_type_set
         self.mp3_bit_set = root.mp3_bit_set_var.get()
@@ -792,11 +801,11 @@ class Ensembler():
         
         if len(stem_outputs) > 1:
             spec_utils.ensemble_inputs(stem_outputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble)
-            save_format(stem_save_path, self.save_format, self.mp3_bit_set)
+            save_format(stem_save_path, self.save_format, self.mp3_bit_set, self.is_trim_silence)
         
         if self.is_save_all_outputs_ensemble:
             for i in stem_outputs:
-                save_format(i, self.save_format, self.mp3_bit_set)
+                save_format(i, self.save_format, self.mp3_bit_set, self.is_trim_silence)
         else:
             for i in stem_outputs:
                 try:
@@ -1329,6 +1338,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.efile_img = img.efile_img
         self.stop_img = img.stop_img
         self.help_img = img.help_img
+        self.link_img = img.link_img
+        self.folder_add_img = img.folder_add_img
         self.download_img = img.download_img
         self.donate_img = img.donate_img
         self.key_img = img.key_img
@@ -1454,6 +1465,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.demucs_name_select_MAPPER = load_model_hash_data(DEMUCS_MODEL_NAME_SELECT)
         self.is_gpu_available = is_gpu_available
         self.is_process_stopped = False
+        self.video_jobs = {}
+        self.video_link_stem_var = tk.StringVar(value='')
         self.inputs_from_dir = []
         self.iteration = 0
         self.true_model_count = 0
@@ -1683,13 +1696,19 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.filePaths_musicFile_Entry = ttk.Entry(master=self.filePaths_Frame, textvariable=self.inputPathsEntry_var, font=self.font_entry, state=tk.DISABLED)
         self.filePaths_musicFile_Entry.place(x=MUSICFILE_ENTRY_X, y=MUSICFILE_BUTTON_Y, width=MUSICFILE_ENTRY_WIDTH, height=MUSICFILE_ENTRY_HEIGHT, relx=0.3, rely=0, relwidth=0.7, relheight=0.5)                                   
         self.filePaths_musicFile_Open = ttk.Button(master=self.filePaths_Frame, image=self.efile_img, command=lambda:OPEN_FILE_func(os.path.dirname(self.inputPaths[0])) if self.inputPaths and os.path.isdir(os.path.dirname(self.inputPaths[0])) else self.error_dialoge(INVALID_INPUT))
-        self.filePaths_musicFile_Open.place(x=OPEN_BUTTON_X, y=MUSICFILE_BUTTON_Y, width=OPEN_BUTTON_WIDTH, height=MUSICFILE_ENTRY_HEIGHT, relx=0.3, rely=0, relwidth=0.7, relheight=0.5)   
+        self.filePaths_musicFile_Open.place(x=OPEN_BUTTON_X, y=MUSICFILE_BUTTON_Y, width=OPEN_BUTTON_WIDTH, height=MUSICFILE_ENTRY_HEIGHT, relx=0.3, rely=0, relwidth=0.7, relheight=0.5)
+        self.filePaths_musicFile_Link = ttk.Button(master=self.filePaths_Frame, image=self.link_img, command=self.pop_up_video_link)
+        self.filePaths_musicFile_Link.place(x=LINK_BUTTON_X, y=MUSICFILE_BUTTON_Y, width=OPEN_BUTTON_WIDTH, height=MUSICFILE_ENTRY_HEIGHT, relx=0.3, rely=0, relwidth=0.7, relheight=0.5)
+        self.filePaths_musicFile_Folder = ttk.Button(master=self.filePaths_Frame, image=self.folder_add_img, command=self.input_select_folderdialog)
+        self.filePaths_musicFile_Folder.place(x=FOLDER_BUTTON_X, y=MUSICFILE_BUTTON_Y, width=OPEN_BUTTON_WIDTH, height=MUSICFILE_ENTRY_HEIGHT, relx=0.3, rely=0, relwidth=0.7, relheight=0.5)
 
         # Add any additional configurations or method calls here
         self.filePaths_musicFile_Entry.configure(cursor="hand2")
         self.help_hints(self.filePaths_musicFile_Button, text=INPUT_FOLDER_ENTRY_HELP) 
         self.help_hints(self.filePaths_musicFile_Entry, text=INPUT_FOLDER_ENTRY_HELP_2)
-        self.help_hints(self.filePaths_musicFile_Open, text=INPUT_FOLDER_BUTTON_HELP)     
+        self.help_hints(self.filePaths_musicFile_Open, text=INPUT_FOLDER_BUTTON_HELP)
+        self.help_hints(self.filePaths_musicFile_Link, text=VIDEO_LINK_HELP)
+        self.help_hints(self.filePaths_musicFile_Folder, text=INPUT_FOLDER_SELECT_HELP)
 
         # Save To Option
         self.filePaths_saveTo_Button = ttk.Button(master=self.filePaths_Frame, text=SELECT_OUTPUT_TEXT, command=self.export_select_filedialog)
@@ -1721,6 +1740,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.mp3_button = ttk.Radiobutton(master=self.options_Frame, text=MP3, variable=self.save_format_var, value=MP3)
         self.mp3_button.place(x=RADIOBUTTON_X_MP3, y=RADIOBUTTON_Y, width=RADIOBUTTON_WIDTH, height=RADIOBUTTON_HEIGHT, relx=2/3, rely=0/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
         self.help_hints(self.mp3_button, text=f'{FORMAT_SETTING_HELP}{MP3}')
+
+        ## Trim Silence (shares its setting with Settings > Additional Settings)
+        self.is_trim_silence_Option = ttk.Checkbutton(master=self.options_Frame, text=TRIM_SILENCE_TEXT, variable=self.is_trim_silence_var)
+        self.is_trim_silence_Option.place(x=0, y=RADIOBUTTON_Y, width=RADIOBUTTON_WIDTH, height=RADIOBUTTON_HEIGHT, relx=0, rely=0/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
+        self.help_hints(self.is_trim_silence_Option, text=IS_TRIM_SILENCE_HELP)
 
         # Choose Conversion Method
         self.chosen_process_method_Label = self.main_window_LABEL_SET(self.options_Frame, CHOOSE_PROC_METHOD_MAIN_LABEL)
@@ -2165,6 +2189,10 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         elif dialoge_type == SINGLE_FILE:
             filenames = filedialog.askopenfilename(parent=parent_win, 
                                                    title=text)
+        elif dialoge_type == MAIN_INPUT_FOLDER:
+            filenames = filedialog.askdirectory(parent=parent_win,
+                                                title=SELECT_INPUT_FOLDER_TEXT,
+                                                initialdir=self.lastDir)
         elif dialoge_type == CHOOSE_EXPORT_FIR:
             filenames = filedialog.askdirectory(
                                     parent=parent_win,
@@ -2191,6 +2219,21 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             
             self.process_input_selections()
             self.update_inputPaths()
+
+    def input_select_folderdialog(self):
+        """Make user select a folder; every audio/video file in it (subfolders included) becomes an input"""
+
+        if self.lastDir is not None and not os.path.isdir(self.lastDir):
+            self.lastDir = None
+
+        path = self.show_file_dialog(dialoge_type=MAIN_INPUT_FOLDER)
+
+        if path:  # Folder selected
+            self.inputPaths = (path,)
+            self.process_input_selections()
+            self.update_inputPaths()
+            if not self.inputPaths:
+                self.command_Text.write(f'\nNo supported audio or video files found in "{path}".\n')
 
     def export_select_filedialog(self):
         """Make user select a folder to export the converted files in"""
@@ -2273,7 +2316,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             
             for dir in DIRECTORIES:
                 for temp_file in os.listdir(dir):
-                    if temp_file.endswith(EXTENSIONS):
+                    # Running from source, BASE_PATH is the repo root, which holds requirements.txt
+                    if temp_file.endswith(EXTENSIONS) and temp_file != 'requirements.txt':
                         if os.path.isfile(os.path.join(dir, temp_file)):
                             os.remove(os.path.join(dir, temp_file))
         except Exception as e:
@@ -2393,7 +2437,9 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
 
         right_click_menu = tk.Menu(self, font=(MAIN_FONT_NAME, FONT_SIZE_1), tearoff=0)
         right_click_menu.add_command(label='See All Inputs', command=lambda:self.check_is_menu_open(INPUTS_MENU))
-        
+        right_click_menu.add_command(label=SELECT_INPUT_FOLDER_TEXT, command=self.input_select_folderdialog)
+        right_click_menu.add_command(label=VIDEO_LINK_TEXT, command=self.pop_up_video_link)
+
         try:
             right_click_menu.tk_popup(event.x_root,event.y_root)
             right_click_release_linux(right_click_menu)
@@ -3331,6 +3377,10 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         is_normalization_Option = ttk.Checkbutton(settings_menu_format_Frame, text=NORMALIZE_OUTPUT_TEXT, width=GEN_SETTINGS_WIDTH, variable=self.is_normalization_var) 
         is_normalization_Option.grid()
         self.help_hints(is_normalization_Option, text=IS_NORMALIZATION_HELP)
+        
+        is_trim_silence_Option = ttk.Checkbutton(settings_menu_format_Frame, text=TRIM_SILENCE_TEXT, width=GEN_SETTINGS_WIDTH, variable=self.is_trim_silence_var) 
+        is_trim_silence_Option.grid()
+        self.help_hints(is_trim_silence_Option, text=IS_TRIM_SILENCE_HELP)
         
         change_model_default_Button = ttk.Button(settings_menu_format_Frame, text=CHANGE_MODEL_DEFAULTS_TEXT, command=lambda:self.pop_up_change_model_defaults(settings_menu), width=SETTINGS_BUT_WIDTH-2)#
         change_model_default_Button.grid(pady=MENU_PADDING_4)
@@ -4379,6 +4429,131 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             saved_data_dump = json.dumps(current_settings, indent=4)
             with open(os.path.join(SETTINGS_CACHE_DIR, f'{settings_save_name}.json'), "w") as outfile:
                 outfile.write(saved_data_dump)
+
+    def pop_up_video_link(self):
+        """Input a video link to download, separate, and save with the chosen stem as its audio"""
+
+        if self.thread_check(self.active_processing_thread):
+            self.error_dialoge(VIDEO_LINK_PROCESS_ERROR)
+            return
+
+        video_link_win = tk.Toplevel(root)
+
+        try:
+            clipboard = pyperclip.paste().strip()
+        except Exception:
+            clipboard = ''
+
+        video_link_var = tk.StringVar(value=clipboard if is_url(clipboard) else '')
+
+        video_link_Frame = self.menu_FRAME_SET(video_link_win)
+        video_link_Frame.grid(row=0)
+
+        video_link_title_Label = self.menu_title_LABEL_SET(video_link_Frame, VIDEO_LINK_TEXT)
+        video_link_title_Label.grid(pady=MENU_PADDING_1)
+
+        video_link_Label = self.menu_sub_LABEL_SET(video_link_Frame, VIDEO_LINK_ENTRY_TEXT)
+        video_link_Label.grid(pady=MENU_PADDING_1)
+        video_link_Entry = ttk.Entry(video_link_Frame, textvariable=video_link_var, justify='center', width=50)
+        video_link_Entry.grid(pady=MENU_PADDING_1)
+        video_link_Entry.bind(right_click_button, self.right_click_menu_popup)
+        self.current_text_box = video_link_Entry
+        video_link_Entry.focus_set()
+        tooltip = ToolTip(video_link_Entry)
+        invalid_message = lambda:tooltip.showtip(INVALID_INPUT_E, True)
+
+        self.video_options_widgets(video_link_Frame)
+
+        self.spacer_label(video_link_Frame)
+
+        video_link_rule_Label = tk.Label(video_link_Frame, text=VIDEO_LINK_RULE, font=(MAIN_FONT_NAME, f"{FONT_SIZE_1}"), foreground='#868687', justify="center")
+        video_link_rule_Label.grid()
+
+        video_link_start_Button = ttk.Button(video_link_Frame, text=VIDEO_LINK_START_TEXT, command=lambda:self.process_video_link_initialize(video_link_var.get().strip(), video_link_win, invalid_message))
+        video_link_start_Button.grid(pady=MENU_PADDING_1)
+
+        video_link_cancel_Button = ttk.Button(video_link_Frame, text=CANCEL_TEXT, command=lambda:video_link_win.destroy())
+        video_link_cancel_Button.grid(pady=MENU_PADDING_1)
+
+        self.menu_placement(video_link_win, VIDEO_LINK_TEXT, pop_up=True)
+
+    def pop_up_video_options(self, video_inputs):
+        """Asks how the video inputs are saved as videos. Returns False if the user cancels processing."""
+
+        video_options_win = tk.Toplevel(root)
+        is_start = tk.BooleanVar(value=False)
+
+        video_options_Frame = self.menu_FRAME_SET(video_options_win)
+        video_options_Frame.grid(row=0)
+
+        video_options_title_Label = self.menu_title_LABEL_SET(video_options_Frame, VIDEO_OPTIONS_TEXT)
+        video_options_title_Label.grid(pady=MENU_PADDING_1)
+
+        video_inputs_Label = self.menu_sub_LABEL_SET(video_options_Frame, VIDEO_INPUTS_TEXT.format(len(video_inputs)))
+        video_inputs_Label.grid(pady=MENU_PADDING_1)
+
+        self.video_options_widgets(video_options_Frame, is_audio_only_option=True)
+
+        self.spacer_label(video_options_Frame)
+
+        video_options_rule_Label = tk.Label(video_options_Frame, text=VIDEO_OPTIONS_RULE, font=(MAIN_FONT_NAME, f"{FONT_SIZE_1}"), foreground='#868687', justify="center")
+        video_options_rule_Label.grid()
+
+        video_options_start_Button = ttk.Button(video_options_Frame, text=START_PROCESSING, command=lambda:(is_start.set(True), video_options_win.destroy()))
+        video_options_start_Button.grid(pady=MENU_PADDING_1)
+
+        video_options_cancel_Button = ttk.Button(video_options_Frame, text=CANCEL_TEXT, command=lambda:video_options_win.destroy())
+        video_options_cancel_Button.grid(pady=MENU_PADDING_1)
+
+        self.menu_placement(video_options_win, VIDEO_OPTIONS_TEXT, pop_up=True)
+
+        return is_start.get()
+
+    def video_options_widgets(self, frame, is_audio_only_option=False):
+        """Adds the video stem, Trim Silence and Video Fit choices shared by the video dialogs"""
+
+        stem_options = self.video_link_stem_options() + ([AUDIO_ONLY] if is_audio_only_option else [])
+
+        if self.video_link_stem_var.get() not in stem_options:
+            self.video_link_stem_var.set(stem_options[0])
+
+        if self.video_fit_var.get() not in VIDEO_FIT_OPTIONS:
+            self.video_fit_var.set(KEEP_VIDEO_LENGTH)
+
+        video_stem_Label = self.menu_sub_LABEL_SET(frame, VIDEO_LINK_STEM_TEXT)
+        video_stem_Label.grid(pady=MENU_PADDING_1)
+        video_stem_Option = ComboBoxMenu(frame, textvariable=self.video_link_stem_var, values=stem_options, width=MENU_COMBOBOX_WIDTH)
+        video_stem_Option.grid(pady=MENU_PADDING_1)
+
+        # Video Fit only matters when Trim Silence shortens the audio
+        video_fit_Option = ComboBoxMenu(frame, textvariable=self.video_fit_var, values=VIDEO_FIT_OPTIONS, width=MENU_COMBOBOX_WIDTH)
+        video_fit_toggle = lambda:video_fit_Option.configure(state=READ_ONLY if self.is_trim_silence_var.get() else tk.DISABLED)
+
+        is_trim_silence_Option = ttk.Checkbutton(frame, text=TRIM_SILENCE_TEXT, variable=self.is_trim_silence_var, command=video_fit_toggle)
+        is_trim_silence_Option.grid(pady=MENU_PADDING_1)
+        self.help_hints(is_trim_silence_Option, text=IS_TRIM_SILENCE_HELP)
+
+        video_fit_Label = self.menu_sub_LABEL_SET(frame, VIDEO_FIT_TEXT)
+        video_fit_Label.grid(pady=MENU_PADDING_1)
+        video_fit_Option.grid(pady=MENU_PADDING_1)
+        self.help_hints(video_fit_Label, text=VIDEO_FIT_HELP)
+        video_fit_toggle()
+
+    def video_link_stem_options(self):
+        """Stems the current setup saves, read from the "Only" checkbox labels, plus All Stems"""
+
+        if self.chosen_process_method_var.get() == DEMUCS_ARCH_TYPE:
+            stem_labels = self.is_primary_stem_only_Demucs_Text_var, self.is_secondary_stem_only_Demucs_Text_var
+        else:
+            stem_labels = self.is_primary_stem_only_Text_var, self.is_secondary_stem_only_Text_var
+
+        stems = [label.get().removesuffix(' Only') for label in stem_labels]
+
+        # No model chosen yet, or a model set to save all of its stems
+        if PRIMARY_STEM in stems:
+            stems = [INST_STEM, VOCAL_STEM, DRUM_STEM, BASS_STEM, OTHER_STEM, GUITAR_STEM, PIANO_STEM]
+
+        return stems + [ALL_STEMS]
 
     def pop_up_update_confirmation(self):
         """Ask user is they want to update"""
@@ -6122,20 +6297,28 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         
         input_list = []
 
-        ext = FFMPEG_EXT if not self.is_accept_any_input_var.get() else ANY_EXT
+        ext = tuple(e.lower() for e in FFMPEG_EXT) if not self.is_accept_any_input_var.get() else ANY_EXT
+        is_supported = lambda name: name.lower().endswith(ext)
 
         for i in self.inputPaths:
             if os.path.isfile(i):
-                if i.endswith(ext):
+                if is_supported(i):
                     input_list.append(i)
+                continue
+            # A folder: its files and subfolders', sorted by path; hidden files and
+            # folders (incl. macOS "._" resource forks) are skipped
+            folder_files = []
             for root, dirs, files in os.walk(i):
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for file in files:
-                    if file.endswith(ext):
+                    if not file.startswith('.') and is_supported(file):
                         file = os.path.join(root, file)
                         if os.path.isfile(file):
-                            input_list.append(file)
-                                         
-        self.inputPaths = tuple(input_list)
+                            folder_files.append(file)
+            input_list.extend(sorted(folder_files, key=lambda f: os.path.relpath(f, i).lower()))
+
+        # A file can be selected twice (on its own and in a dropped folder)
+        self.inputPaths = tuple(dict.fromkeys(input_list))
 
     def process_check_wav_type(self):
         if self.wav_type_set_var.get() == '32-bit Float':
@@ -6208,6 +6391,16 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 error_msg = INVALID_ENSEMBLE if self.chosen_process_method_var.get() == ENSEMBLE_MODE else INVALID_MODEL
                 self.error_dialoge(error_msg)
                 return
+
+            # Video inputs can also be saved as videos with a chosen stem as their audio
+            self.video_jobs = {}
+            video_inputs = [i for i in self.inputPaths if is_video_file(i)] if find_ffmpeg() else []
+            if video_inputs:
+                if not self.pop_up_video_options(video_inputs):
+                    return
+                if self.video_link_stem_var.get() != AUDIO_ONLY:
+                    self.video_jobs = {i: (i, self.video_link_stem_var.get(), self.video_fit_var.get()) for i in video_inputs}
+
             target_function = self.process_start
         else:
             target_function = self.process_tool_start
@@ -6215,11 +6408,12 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.active_processing_thread = KThread(target=target_function)
         self.active_processing_thread.start()
 
-    def process_button_init(self):
+    def process_button_init(self, is_clear_console=True):
         self.auto_save()
         self.conversion_Button_Text_var.set(WAIT_PROCESSING)
         self.conversion_Button.configure(state=tk.DISABLED)
-        self.command_Text.clear()
+        if is_clear_console:
+            self.command_Text.clear()
 
     def process_get_baseText(self, total_files, file_num, is_dual=False):
         """Create the base text for the command widget"""
@@ -6543,9 +6737,108 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         
         return 0
         
-    def process_start(self):
+    def process_video_link_initialize(self, link, video_link_win, invalid_message):
+        """Verifies the link and settings, then threads the video link process"""
+
+        if not is_url(link):
+            invalid_message()
+            return
+
+        if not is_yt_dlp_installed():
+            self.error_dialoge(VIDEO_LINK_NO_YT_DLP_ERROR)
+            return
+
+        if not find_ffmpeg():
+            self.error_dialoge(VIDEO_LINK_NO_FFMPEG_ERROR)
+            return
+
+        if self.chosen_process_method_var.get() == AUDIO_TOOLS:
+            self.error_dialoge(VIDEO_LINK_METHOD_ERROR)
+            return
+
+        if not os.path.isdir(self.export_path_var.get()):
+            self.error_dialoge(INVALID_EXPORT)
+            return
+
+        if not self.process_storage_check():
+            return
+
+        if not self.process_preliminary_checks():
+            self.error_dialoge(INVALID_ENSEMBLE if self.chosen_process_method_var.get() == ENSEMBLE_MODE else INVALID_MODEL)
+            return
+
+        video_link_win.destroy()
+
+        self.active_processing_thread = KThread(target=self.process_video_link_start, args=(link, self.video_link_stem_var.get(), self.video_fit_var.get()))
+        self.active_processing_thread.start()
+
+    def process_video_link_start(self, link, chosen_stem, video_fit):
+        """Downloads the video, then separates its audio like any other input"""
+
+        def set_download_progress(progress):
+            self.progress_bar_main_var.set(progress * 100)
+            self.conversion_Button_Text_var.set(f'Download Progress: {int(progress * 100)}%')
+
+        self.process_button_init()
+        audio_file = None
+
+        try:
+            ffmpeg_path = find_ffmpeg()
+            self.command_Text.write(f'{link}\n\n{VIDEO_LINK_DOWNLOADING_TEXT}')
+            video_file = download_video(link, os.path.join(self.export_path_var.get(), VIDEO_DOWNLOADS_FOLDER), ffmpeg_path, set_download_progress)
+            self.command_Text.write(DONE)
+            self.command_Text.write(VIDEO_LINK_EXTRACTING_TEXT)
+            audio_file = extract_audio(ffmpeg_path, video_file, f'{os.path.splitext(video_file)[0]}.wav')
+            self.command_Text.write(f'{DONE}\n')
+            self.progress_bar_main_var.set(0)
+
+            self.video_jobs = {audio_file: (video_file, chosen_stem, video_fit)}
+            self.inputPaths = (audio_file,)
+            self.update_inputPaths()
+            self.process_start(is_clear_console=False)
+        except VideoLinkError as e:
+            self.command_Text.write(f'\n\n{e}\n\n{PROCESS_FAILED}')
+            self.process_end()
+            self.error_dialoge((VIDEO_LINK_FAILED, str(e)))
+        except Exception as e:
+            self.error_log_var.set("{}{}".format(error_text(self.chosen_process_method_var.get(), e), self.get_settings_list()))
+            self.command_Text.write(f'\n\n{PROCESS_FAILED}')
+            self.process_end(error=e)
+        finally:
+            # The extracted audio is only an intermediate; the downloaded video is kept
+            if audio_file:
+                self.video_jobs.pop(audio_file, None)
+                if os.path.isfile(audio_file):
+                    os.remove(audio_file)
+
+    def process_video_remux(self, video_job, output_prefix, export_folders, since, base_text):
+        """Saves the video with each chosen stem output as its audio"""
+
+        video_file, chosen_stem, video_fit = video_job
+        stems = find_stem_files(export_folders, output_prefix, since)
+        chosen_stems = select_stems(stems, chosen_stem)
+
+        if not chosen_stems:
+            self.command_Text.write(base_text + VIDEO_LINK_NO_STEM_TEXT.format(chosen_stem, ', '.join(stems) or 'none'))
+            return
+
+        for stem, stem_file in chosen_stems.items():
+            output_base = os.path.splitext(stem_file)[0]
+            # Set when Trim Silence shortened this output
+            trim = trimmed_audio_ranges.pop(output_base, None)
+            fit_text = f' ({video_fit})' if trim and video_fit != KEEP_VIDEO_LENGTH else ''
+            self.command_Text.write(base_text + VIDEO_LINK_SAVING_TEXT.format(stem, fit_text))
+
+            try:
+                make_video(find_ffmpeg(), video_file, stem_file, output_base, video_fit, trim)
+                self.command_Text.write(DONE)
+            except VideoLinkError as e:
+                # One video failing shouldn't stop the remaining files
+                self.command_Text.write('\n' + base_text + VIDEO_FAILED_TEXT.format(str(e).splitlines()[-1]))
+
+    def process_start(self, is_clear_console=True):
         """Start the conversion for all the given mp3 and wav files"""
-        
+
         stime = time.perf_counter()
         time_elapsed = lambda:f'Time Elapsed: {time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - stime)))}'
         export_path = self.export_path_var.get()
@@ -6553,7 +6846,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.true_model_count = 0
         self.iteration = 0
         is_verified_audio = True
-        self.process_button_init()
+        self.process_button_init(is_clear_console)
+        trimmed_audio_ranges.clear()
         inputPaths = self.inputPaths
         inputPath_total_len = len(inputPaths)
         is_model_sample_mode = self.model_sample_mode_var.get()
@@ -6580,6 +6874,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             for file_num, audio_file in enumerate(inputPaths, start=1):
                 self.cached_sources_clear()
                 base_text = self.process_get_baseText(total_files=inputPath_total_len, file_num=file_num)
+                video_job = self.video_jobs.get(audio_file)
+                file_stime = time.time()
 
                 if self.verify_audio(audio_file):
                     audio_file = self.create_sample(audio_file) if is_model_sample_mode else audio_file
@@ -6657,7 +6953,16 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                             ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True)
 
                     self.command_Text.write(DONE)
-                    
+
+                if video_job:
+                    if is_model_sample_mode:
+                        self.command_Text.write(base_text + VIDEO_LINK_SAMPLE_MODE_TEXT)
+                    else:
+                        # Ensemble outputs land in the main export folder; the per-model ones are intermediates
+                        export_folders = [self.export_path_var.get()] if is_ensemble else [self.export_path_var.get(), export_path]
+                        output_prefix = f'{file_num}_{os.path.splitext(os.path.basename(audio_file))[0]}'
+                        self.process_video_remux(video_job, output_prefix, export_folders, file_stime, base_text)
+
                 if is_model_sample_mode:
                     if os.path.isfile(audio_file):
                         os.remove(audio_file)
@@ -6834,6 +7139,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.is_accept_any_input_var = tk.BooleanVar(value=data['is_accept_any_input'])
         self.is_task_complete_var = tk.BooleanVar(value=data['is_task_complete'])
         self.is_normalization_var = tk.BooleanVar(value=data['is_normalization'])#
+        self.is_trim_silence_var = tk.BooleanVar(value=data['is_trim_silence'])
+        self.video_fit_var = tk.StringVar(value=data['video_fit'])
         self.is_use_opencl_var = tk.BooleanVar(value=False)#True if is_opencl_only else data['is_use_opencl'])#
         self.is_wav_ensemble_var = tk.BooleanVar(value=data['is_wav_ensemble'])#
         self.is_create_model_folder_var = tk.BooleanVar(value=data['is_create_model_folder'])
@@ -6984,6 +7291,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             
         self.is_gpu_conversion_var.set(loaded_setting['is_gpu_conversion'])
         self.is_normalization_var.set(loaded_setting['is_normalization'])#
+        self.is_trim_silence_var.set(loaded_setting['is_trim_silence'])
+        self.video_fit_var.set(loaded_setting['video_fit'])
         self.is_use_opencl_var.set(False)#True if is_opencl_only else loaded_setting['is_use_opencl'])#
         self.is_wav_ensemble_var.set(loaded_setting['is_wav_ensemble'])#
         self.help_hints_var.set(loaded_setting['help_hints_var'])
@@ -7095,6 +7404,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             'is_accept_any_input': self.is_accept_any_input_var.get(),
             'is_task_complete': self.is_task_complete_var.get(),
             'is_normalization': self.is_normalization_var.get(),#
+            'is_trim_silence': self.is_trim_silence_var.get(),
+            'video_fit': self.video_fit_var.get(),
             'is_use_opencl': self.is_use_opencl_var.get(),#
             'is_wav_ensemble': self.is_wav_ensemble_var.get(),#
             'is_create_model_folder': self.is_create_model_folder_var.get(),

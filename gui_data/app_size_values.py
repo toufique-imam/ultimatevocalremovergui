@@ -90,6 +90,8 @@ class ImagePath():
         right_img_path = os.path.join(img_path, "right.png")
         clear_img_path = os.path.join(img_path, "clear.png")
         copy_img_path = os.path.join(img_path, "copy.png")
+        link_path = os.path.join(img_path, 'link.png')
+        folder_add_path = os.path.join(img_path, 'folder_add.png')
         self.banner_path = os.path.join(img_path, 'UVR-banner.png')
 
         self.efile_img = self.open_image(path=efile_path,size=(image_scale_1, image_scale_1))
@@ -97,6 +99,8 @@ class ImagePath():
         self.play_img = self.open_image(path=play_path, size=(image_scale_1, image_scale_1))
         self.pause_img = self.open_image(path=pause_path, size=(image_scale_1, image_scale_1))
         self.help_img = self.open_image(path=help_path, size=(image_scale_1, image_scale_1))
+        self.link_img = self.open_image(path=link_path, size=(image_scale_1, image_scale_1))
+        self.folder_add_img = self.open_image(path=folder_add_path, size=(image_scale_1, image_scale_1))
         self.download_img = self.open_image(path=download_path, size=(image_scale_2, image_scale_2))       
         self.donate_img = self.open_image(path=donate_path, size=(image_scale_2, image_scale_2))    
         self.key_img = self.open_image(path=key_path, size=(image_scale_2, image_scale_2))     
@@ -264,7 +268,7 @@ MUSICFILE_BUTTON_Y = 5
 MUSICFILE_BUTTON_WIDTH = 0
 MUSICFILE_BUTTON_HEIGHT = -5
 MUSICFILE_ENTRY_X = 7.5
-MUSICFILE_ENTRY_WIDTH = -50
+MUSICFILE_ENTRY_WIDTH = -130
 MUSICFILE_ENTRY_HEIGHT = -5
 MUSICFILE_OPEN_X = -45
 MUSICFILE_OPEN_Y = 160
@@ -276,6 +280,8 @@ SAVETO_BUTTON_WIDTH = 0
 SAVETO_BUTTON_HEIGHT = -5
 SAVETO_ENTRY_X = 7.5
 OPEN_BUTTON_X = 427.1
+LINK_BUTTON_X = OPEN_BUTTON_X - 40
+FOLDER_BUTTON_X = LINK_BUTTON_X - 40
 OPEN_BUTTON_WIDTH = -427.4
 SAVETO_ENTRY_WIDTH = -50
 SAVETO_ENTRY_HEIGHT = -5

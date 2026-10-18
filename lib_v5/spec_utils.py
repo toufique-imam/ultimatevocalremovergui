@@ -91,6 +91,91 @@ def normalize(wave, is_normalize=False):
     
     return wave
     
+def trim_silence(wave, samplerate, keep_ranges=None, **kwargs):
+    """
+    Drop silent stretches from audio (see silence_keep_ranges for what counts as silent).
+
+    Parameters:
+        wave (np.ndarray): Audio in (samples, channels) format.
+        samplerate (int): Sample rate of the audio.
+        keep_ranges (list): Ranges from silence_keep_ranges, if already found.
+
+    Returns:
+        np.ndarray: The audio with the silent stretches removed.
+    """
+
+    if keep_ranges is None:
+        keep_ranges = silence_keep_ranges(wave, samplerate, **kwargs)
+
+    if keep_ranges is None:
+        return wave
+
+    trimmed = np.concatenate([wave[start:end] for start, end in keep_ranges])
+
+    # Short fades at each cut keep the joins click-free
+    fade = np.linspace(0, 1, int(samplerate * 0.005))[:, None]
+    pos = 0
+    for start, end in keep_ranges:
+        length = end - start
+        n = min(len(fade), length // 2)
+        if start > 0:
+            trimmed[pos:pos + n] *= fade[:n]
+        if end < len(wave):
+            trimmed[pos + length - n:pos + length] *= fade[:n][::-1]
+        pos += length
+
+    return trimmed
+
+def silence_keep_ranges(wave, samplerate, threshold_db=-40, min_silence=0.5, keep_silence=0.15, frame_sec=0.02):
+    """
+    Find the parts of the audio that trim_silence keeps.
+
+    A stretch counts as silent when it stays threshold_db below the loudest part
+    (or under -80 dBFS) for at least min_silence seconds. keep_silence seconds are
+    left on each side of every cut so notes and words don't get clipped.
+
+    Returns:
+        list: (start, end) sample ranges to keep, in order, or None when nothing would be cut.
+    """
+
+    frame_len = max(1, int(samplerate * frame_sec))
+    n_full = len(wave) // frame_len
+    power = np.mean(np.square(wave[:n_full * frame_len].reshape(n_full, frame_len * wave.shape[1])), axis=1)
+    if len(wave) > n_full * frame_len:
+        power = np.append(power, np.mean(np.square(wave[n_full * frame_len:])))
+
+    if len(power) == 0:
+        return None
+
+    level_db = 10 * np.log10(power + 1e-20)
+    is_sound = level_db > max(level_db.max() + threshold_db, -80)
+
+    if is_sound.all() or not is_sound.any():
+        return None
+
+    min_frames = int(round(min_silence / frame_sec))
+    keep_frames = int(round(keep_silence / frame_sec))
+    n_frames = len(is_sound)
+
+    # Silent runs as [start, end) frame ranges
+    edges = np.diff(np.concatenate(([0], (~is_sound).astype(np.int8), [0])))
+    keep = np.ones(n_frames, dtype=bool)
+
+    for start, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+        drop_start = start + keep_frames if start > 0 else 0
+        drop_end = end - keep_frames if end < n_frames else n_frames
+        if end - start >= min_frames and drop_end > drop_start:
+            keep[drop_start:drop_end] = False
+
+    if keep.all():
+        return None
+
+    edges = np.diff(np.concatenate(([0], keep.astype(np.int8), [0])))
+    seg_starts = np.flatnonzero(edges == 1) * frame_len
+    seg_ends = np.minimum(np.flatnonzero(edges == -1) * frame_len, len(wave))
+
+    return [(int(start), int(end)) for start, end in zip(seg_starts, seg_ends)]
+
 def auto_transpose(audio_array:np.ndarray):
     """
     Ensure that the audio array is in the (channels, samples) format.
@@ -312,7 +397,8 @@ def cmb_spectrogram_to_wave(spec_m, mp, extra_bins_h=None, extra_bins=None, is_v
 
     for d in range(1, bands_n + 1):
         bp = mp.param['band'][d]
-        spec_s = np.ndarray(shape=(2, bp['n_fft'] // 2 + 1, spec_m.shape[2]), dtype=complex)
+        # Zeros, not np.ndarray: bins outside the band's crop range would otherwise keep leftover memory
+        spec_s = np.zeros(shape=(2, bp['n_fft'] // 2 + 1, spec_m.shape[2]), dtype=complex)
         h = bp['crop_stop'] - bp['crop_start']
         spec_s[:, bp['crop_start']:bp['crop_stop'], :] = spec_m[:, offset:offset+h, :]
                 

@@ -876,6 +876,9 @@ class SeperateMDXC(SeperateAttributes):
         if is_padded:
             estimated_sources = estimated_sources[..., border:-border]
 
+        if self.is_target_instrument: # the rest of the pipeline expects only the target stem, as ZFTurbo's code returns
+            return 1, estimated_sources[0]
+
         return S, (estimated_sources if S > 1 else estimated_sources[0])
 
 class SeperateDemucs(SeperateAttributes):

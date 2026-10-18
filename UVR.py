@@ -221,7 +221,7 @@ def download_mdx_c_config(config, download_links):
     config_local = os.path.join(MDX_C_CONFIG_PATH, config)
     if not os.path.isfile(config_local):
         config_link = download_links.get(config, f"{MDX23_CONFIG_CHECKS}{config}")
-        with urllib.request.urlopen(config_link) as response:
+        with urllib.request.urlopen(config_link, timeout=10) as response:
             with open(config_local, 'wb') as out_file:
                 out_file.write(response.read())
 
@@ -544,8 +544,8 @@ class ModelData():
                             # The architecture is read from the yaml: the server's "is_roformer" flag is also set for SCNet/Bandit.
                             self.is_roformer = get_roformer_type(config) is not None
                             self.check_if_karaokee_model()
-                            if self.overlap_mdx23 == DEFAULT:
-                                self.overlap_mdx23 = max(int(config.get('inference', {}).get('num_overlap', 8)), 2)
+                            if self.overlap_mdx23 == DEFAULT: # MDX23C keeps its long-standing default of 8
+                                self.overlap_mdx23 = max(int(config.get('inference', {}).get('num_overlap', 8)), 2) if self.is_roformer else 8
 
                             if self.mdx_c_configs.training.target_instrument:
                                 # Use target_instrument as the primary stem and set 4-stem ensemble to False

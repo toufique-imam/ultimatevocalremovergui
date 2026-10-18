@@ -1066,7 +1066,7 @@ MDX_OVERLAP_HELP = ('• This option controls the amount of overlap between pred
                '       - For Non-MDX23C models: You can choose between 0.001-0.999')
 OVERLAP_23_HELP = ('• This option controls the amount of overlap between prediction windows.\n'
                   '       - Higher values can provide better results, but will lead to longer processing times.\n'
-                  '       - \"Default\" uses the overlap recommended in the model\'s config file (yaml).')
+                  '       - \"Default\" is 8 for MDX23C models and the overlap recommended in the config file (yaml) for Roformer models.')
 IS_SEGMENT_DEFAULT_HELP = '• The segment size is set based on the value provided in a chosen model\'s associated \nconfig file (yaml).'
 IS_SPLIT_MODE_HELP = '• Enables \"Segments\". \n• Deselecting this option is only recommended for those with powerful PCs.'
 IS_DEMUCS_COMBINE_STEMS_HELP = 'The application will create the secondary stem by combining the remaining stems \ninstead of inverting the primary stem with the mixture.'

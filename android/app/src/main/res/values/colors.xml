@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- UVR Brand Colors -->
+    <color name="uvr_primary">#6B4EFF</color>
+    <color name="uvr_primary_dark">#5B3ECC</color>
+    <color name="uvr_secondary">#03DAC5</color>
+    <color name="uvr_background_dark">#1A1A2E</color>
+    <color name="uvr_background_light">#F5F5F5</color>
+    <color name="uvr_surface_dark">#16213E</color>
+    <color name="uvr_error">#CF6679</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+</resources>

@@ -1,0 +1,149 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.uvr.android'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.uvr.android"
+        minSdk 26                    // Android 8.0+ for modern audio APIs
+        targetSdk 34
+        versionCode 1
+        versionName "5.6.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary true
+        }
+
+        // ONNX Runtime ABI filters — keep arm64 for modern devices, add x86_64 for emulator
+        ndk {
+            abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    // Prevent .ptl model files from being compressed inside the APK.
+    // PyTorch's AssetManager-based loader requires assets to be stored
+    // uncompressed so they can be memory-mapped directly.
+    aaptOptions {
+        noCompress "ptl", "tflite"
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion '1.5.8'
+    }
+
+    // JVM tests of classes that log: android.util.Log calls return defaults instead of throwing
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    packaging {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+        // libc++_shared.so is bundled by both ffmpeg-kit and pytorch_android_lite.
+        // pickFirsts inside resources{} only covers classpath resources, NOT .so files.
+        // jniLibs{} is required to deduplicate native shared libraries.
+        jniLibs {
+            pickFirsts += [
+                'lib/arm64-v8a/libc++_shared.so',
+                'lib/x86_64/libc++_shared.so',
+                'lib/armeabi-v7a/libc++_shared.so',
+                'lib/x86/libc++_shared.so'
+            ]
+        }
+    }
+}
+
+dependencies {
+    // AndroidX Core
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0'
+    implementation 'androidx.activity:activity-compose:1.8.2'
+
+    // Jetpack Compose (BOM pins all Compose versions)
+    implementation platform('androidx.compose:compose-bom:2024.02.00')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.navigation:navigation-compose:2.7.7'
+
+    // ONNX Runtime for Android — ML inference (.onnx models)
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.17.0'
+
+    // LiteRT (TensorFlow Lite) — VR model inference (.tflite), XNNPACK CPU + GPU delegate
+    implementation 'com.google.ai.edge.litert:litert:1.4.2'
+    implementation 'com.google.ai.edge.litert:litert-gpu:1.4.2'
+
+    // PyTorch Lite for Android — ML inference (.ptl models)
+    // 1.13.1 is the last stable release with correctly packaged native libs.
+    // 2.x renamed libpytorch_jni_lite.so → libpytorch_jni.so AND changed the
+    // AAR structure, causing UnsatisfiedLinkError on 2.1.0.
+//    implementation 'org.pytorch:pytorch_android_lite:1.13.1'
+//    implementation 'org.pytorch:pytorch_android_lite:1.13.1'
+    implementation 'org.pytorch:pytorch_android:1.13.1'
+
+//    implementation 'org.pytorch:pytorch_android_torchvision_lite:1.13.1'
+
+
+    // FFmpegKit — audio format conversion (WAV, MP3, FLAC, OGG)
+//    implementation 'com.arthenica:ffmpeg-kit-audio:6.0-2'
+    implementation(files("libs/ffmpeg-kit-audio-6.0-2.aar"))
+    implementation 'com.arthenica:smart-exception-java:0.2.1'
+    // Coroutines
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
+
+    // DocumentFile for SAF (Storage Access Framework) file handling
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+
+
+    // DataStore — persistent settings storage (replaces Tkinter's saved settings)
+    implementation 'androidx.datastore:datastore-preferences:1.0.0'
+
+    // Gson — JSON model config parsing
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // JTransforms — mixed-radix FFT for the VR STFT (band n_fft sizes like 768 aren't powers of two)
+    implementation 'com.github.wendykierp:JTransforms:3.1'
+
+    // Coil — image loading (for waveform display)
+    implementation 'io.coil-kt:coil-compose:2.5.0'
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    androidTestImplementation platform('androidx.compose:compose-bom:2024.02.00')
+    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+}

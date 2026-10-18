@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. Compose handles most theming; this sets the
+         launch window colours, so they must match the Compose light/dark scheme
+         (values-night/themes.xml has the dark variant). -->
+    <style name="Theme.UltimateVocalRemover" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/uvr_background_light</item>
+        <item name="android:navigationBarColor">@color/uvr_background_light</item>
+        <item name="android:windowBackground">@color/uvr_background_light</item>
+    </style>
+</resources>

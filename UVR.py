@@ -41,6 +41,7 @@ from gui_data.error_handling import error_text, error_dialouge
 from gui_data.old_data_check import file_check, remove_unneeded_yamls, remove_temps
 from gui_data.tkinterdnd2 import TkinterDnD, DND_FILES
 from lib_v5.vr_network.model_param_init import ModelParameters
+from lib_v5.roformer import get_roformer_type
 from kthread import KThread
 from lib_v5 import spec_utils
 from pathlib  import Path
@@ -197,6 +198,32 @@ def load_model_hash_data(dictionary):
     '''Get the model hash dictionary'''
     with open(dictionary, 'r') as d:
         return json.load(d)
+
+def get_other_network_download_list(online_data):
+    '''Roformer (and newer MDX23C) entries of the download checks in "mdx23c_download_list" form
+    ({selection: {checkpoint: config}}), plus the direct link of each of their files.'''
+    download_list, download_links = dict(online_data.get("roformer_download_list", {})), {}
+
+    for list_name in ("other_network_list", "other_network_list_new"):
+        for selection, files in online_data.get(list_name, {}).items():
+            if not selection.startswith(OTHER_NETWORK_SUPPORTED):
+                continue
+            model_name = next((f for f in files if f.endswith(CKPT)), None)
+            config = next((f for f in files if f.endswith(YAML)), None)
+            if model_name and config:
+                download_list[selection] = {model_name: config}
+                download_links.update({f: DOWNLOAD_LINK_FIXES.get(f, link) for f, link in files.items()})
+
+    return download_list, download_links
+
+def download_mdx_c_config(config, download_links):
+    '''Downloads an MDX23C/Roformer yaml config into MDX_C_CONFIG_PATH if it isn't there yet.'''
+    config_local = os.path.join(MDX_C_CONFIG_PATH, config)
+    if not os.path.isfile(config_local):
+        config_link = download_links.get(config, f"{MDX23_CONFIG_CHECKS}{config}")
+        with urllib.request.urlopen(config_link) as response:
+            with open(config_local, 'wb') as out_file:
+                out_file.write(response.read())
 
 def font_checker(font_file):
     chosen_font_name = None
@@ -363,12 +390,13 @@ class ModelData():
         self.mdxnet_stem_select = root.mdxnet_stems_var.get() 
         self.overlap = float(root.overlap_var.get()) if not root.overlap_var.get() == DEFAULT else 0.25
         self.overlap_mdx = float(root.overlap_mdx_var.get()) if not root.overlap_mdx_var.get() == DEFAULT else root.overlap_mdx_var.get()
-        self.overlap_mdx23 = int(float(root.overlap_mdx23_var.get()))
+        self.overlap_mdx23 = int(float(root.overlap_mdx23_var.get())) if not root.overlap_mdx23_var.get() == DEFAULT else DEFAULT
         self.semitone_shift = float(root.semitone_shift_var.get())
         self.is_pitch_change = False if self.semitone_shift == 0 else True
         self.is_match_frequency_pitch = root.is_match_frequency_pitch_var.get()
         self.is_mdx_ckpt = False
         self.is_mdx_c = False
+        self.is_roformer = False
         self.is_mdx_combine_stems = root.is_mdx23_combine_stems_var.get()#
         self.mdx_c_configs = None
         self.mdx_model_stems = []
@@ -513,12 +541,18 @@ class ModelData():
                                 config = ConfigDict(yaml.load(f, Loader=yaml.FullLoader))
 
                             self.mdx_c_configs = config
-                                
+                            # The architecture is read from the yaml: the server's "is_roformer" flag is also set for SCNet/Bandit.
+                            self.is_roformer = get_roformer_type(config) is not None
+                            self.check_if_karaokee_model()
+                            if self.overlap_mdx23 == DEFAULT:
+                                self.overlap_mdx23 = max(int(config.get('inference', {}).get('num_overlap', 8)), 2)
+
                             if self.mdx_c_configs.training.target_instrument:
                                 # Use target_instrument as the primary stem and set 4-stem ensemble to False
                                 target = self.mdx_c_configs.training.target_instrument
                                 self.mdx_model_stems = [target]
                                 self.primary_stem = target
+                                self.primary_stem_native = target # vocal splitter (karaoke) models label their stems from this
                             else:
                                 # If no specific target_instrument, use all instruments in the training config
                                 self.mdx_model_stems = self.mdx_c_configs.training.instruments
@@ -526,7 +560,9 @@ class ModelData():
                                 
                                 # Set primary stem based on stem count
                                 if self.mdx_stem_count == 2:
-                                    self.primary_stem = self.mdx_model_stems[0]
+                                    if not self.mdxnet_stem_select in self.mdx_model_stems:
+                                        self.mdxnet_stem_select = self.mdx_model_stems[0]
+                                    self.primary_stem = self.mdxnet_stem_select
                                 else:
                                     self.primary_stem = self.mdxnet_stem_select
                                 
@@ -1778,7 +1814,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.overlap_mdx_Option_place = lambda:self.overlap_mdx_Option.place(x=MAIN_ROW_2_X[1], y=MAIN_ROW_2_Y[1], width=MAIN_ROW_WIDTH, height=OPTION_HEIGHT, relx=2/3, rely=3/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
         
         # MDX23-Overlap
-        self.overlap_mdx23_Option = ComboBoxEditableMenu(self.options_Frame, values=MDX23_OVERLAP, width=MENU_COMBOBOX_WIDTH, textvariable=self.overlap_mdx23_var, pattern=REG_OVERLAP23, default="8")
+        self.overlap_mdx23_Option = ComboBoxEditableMenu(self.options_Frame, values=MDX23_OVERLAP, width=MENU_COMBOBOX_WIDTH, textvariable=self.overlap_mdx23_var, pattern=REG_OVERLAP23, default=DEFAULT)
         self.overlap_mdx23_Option_place = lambda:self.overlap_mdx23_Option.place(x=MAIN_ROW_2_X[1], y=MAIN_ROW_2_Y[1], width=MAIN_ROW_WIDTH, height=OPTION_HEIGHT, relx=2/3, rely=3/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
         self.help_hints(self.overlap_mdx_Label, text=MDX_OVERLAP_HELP)
         
@@ -3741,7 +3777,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         
         overlap_mdx23_Label = self.menu_sub_LABEL_SET(mdx_net23_frame, OVERLAP_TEXT)
         overlap_mdx23_Label.grid(pady=MENU_PADDING_1)
-        overlap_mdx23_Option = ComboBoxEditableMenu(mdx_net23_frame, values=MDX23_OVERLAP, width=MENU_COMBOBOX_WIDTH, textvariable=self.overlap_mdx23_var, pattern=REG_OVERLAP23, default="8")#
+        overlap_mdx23_Option = ComboBoxEditableMenu(mdx_net23_frame, values=MDX23_OVERLAP, width=MENU_COMBOBOX_WIDTH, textvariable=self.overlap_mdx23_var, pattern=REG_OVERLAP23, default=DEFAULT)#
         overlap_mdx23_Option.grid(pady=MENU_PADDING_1)
         self.help_hints(overlap_mdx23_Label, text=OVERLAP_23_HELP)
         
@@ -4255,6 +4291,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         mdx_download_list = model_data["mdx_download_list"]
         demucs_download_list = model_data["demucs_download_list"]
         mdx_download_list.update(model_data["mdx23c_download_list"])
+        other_network_download_list, mdx_download_links = get_other_network_download_list(model_data)
+        mdx_download_list.update(other_network_download_list)
 
         def create_link(link):
             final_link = lambda:webbrowser.open_new_tab(link)
@@ -4273,7 +4311,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             if VR_ARCH_TYPE in main_selection:
                 main_selection = vr_download_list[main_selection]
                 model_dir = VR_MODELS_DIR
-            elif MDX_ARCH_TYPE in main_selection or MDX_23_NAME in main_selection:
+            elif MDX_ARCH_TYPE in main_selection or main_selection in mdx_download_list:
                 if isinstance(mdx_download_list[main_selection], dict):
                     main_selection = mdx_download_list[main_selection]
                     main_selection = list(main_selection.keys())[0]
@@ -4293,7 +4331,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                     link = create_link(links)
                     link_button = ttk.Button(manual_downloads_link_Frame, text=f"Open Link to Model{button_text}", command=link).grid(row=MAIN_ROW,column=0,padx=0,pady=MENU_PADDING_1)
             else:
-                link = f"{NORMAL_REPO}{main_selection}"
+                link = mdx_download_links.get(main_selection, f"{NORMAL_REPO}{main_selection}")
                 link_button = ttk.Button(manual_downloads_link_Frame, text=OPEN_LINK_TO_MODEL_TEXT, command=lambda:webbrowser.open_new_tab(link))
                 link_button.grid(row=1,column=0,padx=0,pady=MENU_PADDING_2)
         
@@ -4331,15 +4369,10 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             if isinstance(model_name, dict):
                 items_list = list(model_name.items())
                 model_name, config = items_list[0]
-                config_link = f"{MDX23_CONFIG_CHECKS}{config}"
-                config_local = os.path.join(MDX_C_CONFIG_PATH, config)
-                if not os.path.isfile(config_local):
-                    try:
-                        with urllib.request.urlopen(config_link) as response:
-                            with open(config_local, 'wb') as out_file:
-                                out_file.write(response.read())
-                    except Exception as e:
-                        model_name = None
+                try:
+                    download_mdx_c_config(config, mdx_download_links)
+                except Exception as e:
+                    model_name = None
 
             #print(model_name)
                 
@@ -5451,7 +5484,9 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.mdx_download_list = self.online_data["mdx_download_list"]
         self.demucs_download_list = self.online_data["demucs_download_list"]
         self.mdx_download_list.update(self.online_data["mdx23c_download_list"])
-        
+        other_network_download_list, self.mdx_download_links = get_other_network_download_list(self.online_data)
+        self.mdx_download_list.update(other_network_download_list)
+
         if not self.decoded_vip_link is NO_CODE:
             self.vr_download_list.update(self.online_data["vr_download_vip_list"])
             self.mdx_download_list.update(self.online_data["mdx_download_vip_list"])
@@ -5475,12 +5510,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 if isinstance(model, dict):
                     items_list = list(model.items())
                     model_name, config = items_list[0]
-                    config_link = f"{MDX23_CONFIG_CHECKS}{config}"
-                    config_local = os.path.join(MDX_C_CONFIG_PATH, config)
-                    if not os.path.isfile(config_local):
-                        with urllib.request.urlopen(config_link) as response:
-                            with open(config_local, 'wb') as out_file:
-                                out_file.write(response.read())
+                    try:
+                        download_mdx_c_config(config, self.mdx_download_links)
+                    except Exception as e:
+                        print(e)
+                        continue
                 else:
                     model_name = str(model)
 
@@ -5598,7 +5632,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                         model_name = list(selected_model[1].keys())[0]
                     else:
                         model_name = str(selected_model[1])
-                    self.download_link_path_var.set("{}{}".format(model_repo, model_name))
+                    model_link = getattr(self, 'mdx_download_links', {}).get(model_name, "{}{}".format(model_repo, model_name))
+                    self.download_link_path_var.set(model_link)
                     self.download_save_path_var.set(os.path.join(MDX_MODELS_DIR, model_name))
                     break
 
@@ -6006,6 +6041,9 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         elif self.mdxnet_stems_var.get() == VOCAL_STEM:
             self.update_stem_checkbox_labels(VOCAL_STEM)
             self.is_stem_only_Options_Enable()
+        elif len(model_stems) == 1:
+            # single target models (e.g. Roformer "Instrumental" or "No Reverb")
+            self.update_stem_checkbox_labels(model_stems[0])
         else:
             self.is_stem_only_Options_Enable()
 
@@ -6123,7 +6161,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 self.update_button_states()
             else:
                 if model_data.is_mdx_c and len(model_data.mdx_model_stems) >= 1:
-                    if len(model_data.mdx_model_stems) >= 3:
+                    # Roformers always run at their trained chunk size, so they show their stems instead of segment size.
+                    if len(model_data.mdx_model_stems) >= 3 or model_data.is_roformer:
                         self.mdxnet_stems_Label_place()
                         self.mdxnet_stems_Option_place()
                     else:

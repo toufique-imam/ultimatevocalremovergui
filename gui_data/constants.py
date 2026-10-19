@@ -381,7 +381,7 @@ NOUT_LSTM_SEL = (64, 128)
 
 DEMUCS_OVERLAP = (0.25, 0.50, 0.75, 0.99)
 MDX_OVERLAP = (DEF_OPT, 0.25, 0.50, 0.75, 0.99)
-MDX23_OVERLAP = range(2, 51)
+MDX23_OVERLAP = (DEFAULT, *range(2, 51))
 VR_AGGRESSION = range(0, 51)
 
 TIME_WINDOW_MAPPER = {
@@ -585,7 +585,7 @@ DEFAULT_DATA = {
         'segment': DEMUCS_SEGMENTS[0],
         'overlap': DEMUCS_OVERLAP[0],
         'overlap_mdx': MDX_OVERLAP[0],
-        'overlap_mdx23': '8',
+        'overlap_mdx23': DEFAULT,
         'shifts': 2,
         'chunks_demucs': CHUNKS[0],
         'margin_demucs': 44100,
@@ -864,6 +864,12 @@ MDX_PLACEMENT_TEXT = 'Place models in \"models/MDX_Net_Models\" directory.'
 DEMUCS_PLACEMENT_TEXT = 'Place models in \"models/Demucs_Models\" directory.'
 DEMUCS_V3_V4_PLACEMENT_TEXT = 'Place items in \"models/Demucs_Models/v3_v4_repo\" directory.'
 MDX_23_NAME = "MDX23C Model"
+ROFORMER_NAME = "Roformer Model"
+# Download center entries from "other_network_list(_new)" that this version can run (no SCNet/Bandit)
+OTHER_NETWORK_SUPPORTED = (ROFORMER_NAME, MDX_23_NAME)
+# Download check links that have since moved (file name -> working link)
+DOWNLOAD_LINK_FIXES = {
+    'deverb_bs_roformer_8_256dim_8depth.ckpt': 'https://huggingface.co/anvuew/dereverb_bs_roformer/resolve/main/archive/deverb_bs_roformer_8_256dim_8depth.ckpt'}
 
 # Liscense info
 if OPERATING_SYSTEM=="Darwin":
@@ -1059,7 +1065,8 @@ MDX_OVERLAP_HELP = ('• This option controls the amount of overlap between pred
                '       - Higher values can provide better results, but will lead to longer processing times.\n'
                '       - For Non-MDX23C models: You can choose between 0.001-0.999')
 OVERLAP_23_HELP = ('• This option controls the amount of overlap between prediction windows.\n'
-                  '       - Higher values can provide better results, but will lead to longer processing times.')
+                  '       - Higher values can provide better results, but will lead to longer processing times.\n'
+                  '       - \"Default\" is 8 for MDX23C models and the overlap recommended in the config file (yaml) for Roformer models.')
 IS_SEGMENT_DEFAULT_HELP = '• The segment size is set based on the value provided in a chosen model\'s associated \nconfig file (yaml).'
 IS_SPLIT_MODE_HELP = '• Enables \"Segments\". \n• Deselecting this option is only recommended for those with powerful PCs.'
 IS_DEMUCS_COMBINE_STEMS_HELP = 'The application will create the secondary stem by combining the remaining stems \ninstead of inverting the primary stem with the mixture.'

@@ -273,7 +273,8 @@ The **Ultimate Vocal Remover GUI** code is [MIT-licensed](LICENSE).
 - **Please Note:** For all third-party application developers who wish to use our models, please honor the MIT license by providing credit to UVR and its developers.
 
 ## Credits
-- [ZFTurbo](https://github.com/ZFTurbo) - Created & trained the weights for the new MDX23C models. 
+- [ZFTurbo](https://github.com/ZFTurbo) - Created & trained the weights for the new MDX23C models. The BS/Mel-Band Roformer inference code (`lib_v5/roformer`) is adapted from his [Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training).
+- [lucidrains](https://github.com/lucidrains) - Developed the original [BS-RoFormer / Mel-Band RoFormer](https://github.com/lucidrains/BS-RoFormer) code. 
 - [DilanBoskan](https://github.com/DilanBoskan) - Your contributions at the start of this project were essential to the success of UVR. Thank you!
 - [Bas Curtiz](https://www.youtube.com/user/bascurtiz) - Designed the official UVR logo, icon, banner, and splash screen.
 - [tsurumeso](https://github.com/tsurumeso) - Developed the original VR Architecture code. 

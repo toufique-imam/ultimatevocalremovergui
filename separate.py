@@ -7,6 +7,7 @@ from demucs.pretrained import get_model as _gm
 from demucs.utils import apply_model_v1
 from demucs.utils import apply_model_v2
 from lib_v5.tfc_tdf_v3 import TFC_TDF_net, STFT
+from lib_v5.roformer import load_roformer
 from lib_v5 import spec_utils
 from lib_v5.vr_network import nets
 from lib_v5.vr_network import nets_new
@@ -106,7 +107,9 @@ class SeperateAttributes:
         self.overlap_mdx23 = model_data.overlap_mdx23
         self.is_mdx_combine_stems = model_data.is_mdx_combine_stems
         self.is_mdx_c = model_data.is_mdx_c
+        self.is_roformer = model_data.is_roformer
         self.mdx_c_configs = model_data.mdx_c_configs
+        self.is_target_instrument = bool(self.is_mdx_c and self.mdx_c_configs and self.mdx_c_configs.training.target_instrument)
         self.mdxnet_stem_select = model_data.mdxnet_stem_select
         self.mixer_path = model_data.mixer_path
         self.model_samplerate = model_data.model_samplerate
@@ -207,7 +210,8 @@ class SeperateAttributes:
             self.mdx_segment_size = model_data.mdx_segment_size
             
             if self.is_mdx_c:
-                if not self.is_4_stem_ensemble:
+                # single target models (most Roformers) keep their own stem labels, see check_label_secondary_stem_runs
+                if not self.is_4_stem_ensemble and not self.is_target_instrument:
                     self.primary_stem = model_data.ensemble_primary_stem if process_data['is_ensemble_master'] else model_data.primary_stem
                     self.secondary_stem = model_data.ensemble_secondary_stem if process_data['is_ensemble_master'] else model_data.secondary_stem
             else:
@@ -281,8 +285,8 @@ class SeperateAttributes:
             
     def check_label_secondary_stem_runs(self):
 
-        # For ensemble master that's not a 4-stem ensemble, and not mdx_c
-        if self.process_data['is_ensemble_master'] and not self.is_4_stem_ensemble and not self.is_mdx_c:
+        # For ensemble master that's not a 4-stem ensemble, and not mdx_c (or an mdx_c model with a single target)
+        if self.process_data['is_ensemble_master'] and not self.is_4_stem_ensemble and (not self.is_mdx_c or self.is_target_instrument):
             if self.ensemble_primary_stem != self.primary_stem:
                 self.is_primary_stem_only, self.is_secondary_stem_only = self.is_secondary_stem_only, self.is_primary_stem_only
             
@@ -665,8 +669,9 @@ class SeperateMDXC(SeperateAttributes):
                 self.mdxnet_stem_select = stem_list[0]
             else:
                 self.mdxnet_stem_select = self.main_model_primary_stem_4_stem if self.main_model_primary_stem_4_stem else self.primary_model_primary_stem
-            self.primary_stem = self.mdxnet_stem_select
-            self.secondary_stem = secondary_stem(self.mdxnet_stem_select)
+            if not self.is_target_instrument: # a single target model's output is always its target stem
+                self.primary_stem = self.mdxnet_stem_select
+                self.secondary_stem = secondary_stem(self.mdxnet_stem_select)
             self.is_primary_stem_only, self.is_secondary_stem_only = False, False
 
         is_all_stems = self.mdxnet_stem_select == ALL_STEMS
@@ -741,6 +746,29 @@ class SeperateMDXC(SeperateAttributes):
         if self.is_pitch_change:
             mix, sr_pitched = spec_utils.change_pitch_semitones(mix, 44100, semitone_shift=-self.semitone_shift)
 
+        S, estimated_sources = self.demix_roformer(mix) if self.is_roformer else self.demix_tfc_tdf(mix)
+        pitch_fix = lambda s:self.pitch_fix(s, sr_pitched, org_mix)
+
+        if S > 1:
+            sources = {k: pitch_fix(v) if self.is_pitch_change else v for k, v in zip(self.mdx_c_configs.training.instruments, estimated_sources.cpu().detach().numpy())}
+            del estimated_sources
+            if self.is_denoise_model:
+                if VOCAL_STEM in sources.keys() and INST_STEM in sources.keys():
+                    sources[VOCAL_STEM] = vr_denoiser(sources[VOCAL_STEM], self.device, model_path=self.DENOISER_MODEL)
+                    if sources[VOCAL_STEM].shape[1] != org_mix.shape[1]:
+                        sources[VOCAL_STEM] = spec_utils.match_array_shapes(sources[VOCAL_STEM], org_mix)
+                    sources[INST_STEM] = org_mix - sources[VOCAL_STEM]
+                            
+            return sources
+        else:
+            est_s = estimated_sources.cpu().detach().numpy()
+            del estimated_sources
+            return pitch_fix(est_s) if self.is_pitch_change else est_s
+
+    def demix_tfc_tdf(self, mix):
+        if 'num_subbands' not in self.mdx_c_configs.model:
+            raise ValueError(f'{self.model_basename}: this model architecture is not supported (only MDX23C and BS/Mel-Band Roformer are).')
+
         model = TFC_TDF_net(self.mdx_c_configs, device=self.device)
         model.load_state_dict(torch.load(self.model_path, map_location=cpu))
         model.to(self.device).eval()
@@ -780,23 +808,78 @@ class SeperateMDXC(SeperateAttributes):
 
         estimated_sources = X[..., chunk_size - hop_size:-(pad_size + chunk_size - hop_size)] / overlap
         del X
-        pitch_fix = lambda s:self.pitch_fix(s, sr_pitched, org_mix)
+        return S, estimated_sources
 
-        if S > 1:
-            sources = {k: pitch_fix(v) if self.is_pitch_change else v for k, v in zip(self.mdx_c_configs.training.instruments, estimated_sources.cpu().detach().numpy())}
-            del estimated_sources
-            if self.is_denoise_model:
-                if VOCAL_STEM in sources.keys() and INST_STEM in sources.keys():
-                    sources[VOCAL_STEM] = vr_denoiser(sources[VOCAL_STEM], self.device, model_path=self.DENOISER_MODEL)
-                    if sources[VOCAL_STEM].shape[1] != org_mix.shape[1]:
-                        sources[VOCAL_STEM] = spec_utils.match_array_shapes(sources[VOCAL_STEM], org_mix)
-                    sources[INST_STEM] = org_mix - sources[VOCAL_STEM]
-                            
-            return sources
-        else:
-            est_s = estimated_sources.cpu().detach().numpy()
-            del estimated_sources
-            return pitch_fix(est_s) if self.is_pitch_change else est_s
+    def demix_roformer(self, mix):
+        """Overlap-add inference for BS/Mel-Band Roformer, as in ZFTurbo's Music-Source-Separation-Training.
+        Chunks use the length the model was trained on; neighbours are cross-faded with a linear window.
+        Returns (stem count, tensor of shape (S, channels, samples), or (channels, samples) when S == 1)."""
+
+        config = self.mdx_c_configs
+        model = load_roformer(config, self.model_path, self.device)
+        S = model.num_stems
+
+        chunk_size = config.get('inference', {}).get('chunk_size', None) or config.audio.chunk_size
+        step = max(chunk_size // max(self.overlap_mdx23, 1), 1)
+        fade_size = chunk_size // 10
+        border = chunk_size - step
+        batch_size = max(self.mdx_batch_size, 1)
+
+        mix = torch.tensor(mix, dtype=torch.float32)
+        length_init = mix.shape[-1]
+
+        # reflect-pad so the track edges get full chunk context
+        is_padded = length_init > 2 * border and border > 0
+        if is_padded:
+            mix = torch.nn.functional.pad(mix.unsqueeze(0), (border, border), mode='reflect').squeeze(0)
+        total_length = mix.shape[-1]
+
+        fadein = torch.linspace(0, 1, fade_size)
+        fadeout = torch.linspace(1, 0, fade_size)
+
+        starts = list(range(0, total_length, step))
+        batches = [starts[i:i + batch_size] for i in range(0, len(starts), batch_size)]
+
+        result = torch.zeros((S, *mix.shape), dtype=torch.float32)
+        counter = torch.zeros(total_length, dtype=torch.float32)
+
+        with torch.inference_mode():
+            for batch_starts in batches:
+                self.running_inference_progress_bar(len(batches))
+                parts = []
+                for start in batch_starts:
+                    part = mix[:, start:start + chunk_size]
+                    chunk_len = part.shape[-1]
+                    if chunk_len < chunk_size:
+                        pad_mode = 'reflect' if chunk_len > chunk_size // 2 else 'constant'
+                        part = torch.nn.functional.pad(part.unsqueeze(0), (0, chunk_size - chunk_len), mode=pad_mode).squeeze(0)
+                    parts.append(part)
+
+                x = model(torch.stack(parts).to(self.device)).cpu()
+                if x.shape[-1] < chunk_size: # istft may drop the tail when chunk_size isn't a multiple of the hop
+                    x = torch.nn.functional.pad(x, (0, chunk_size - x.shape[-1]))
+
+                for j, start in enumerate(batch_starts):
+                    seg_len = min(chunk_size, total_length - start)
+                    window = torch.ones(chunk_size)
+                    if start > 0:
+                        window[:fade_size] = fadein
+                    if start + chunk_size < total_length:
+                        window[-fade_size:] = fadeout
+                    result[..., start:start + seg_len] += x[j, ..., :seg_len] * window[:seg_len]
+                    counter[start:start + seg_len] += window[:seg_len]
+
+        del model
+        estimated_sources = result / counter.clamp(min=1e-10)
+        estimated_sources = torch.nan_to_num(estimated_sources, nan=0.0)
+
+        if is_padded:
+            estimated_sources = estimated_sources[..., border:-border]
+
+        if self.is_target_instrument: # the rest of the pipeline expects only the target stem, as ZFTurbo's code returns
+            return 1, estimated_sources[0]
+
+        return S, (estimated_sources if S > 1 else estimated_sources[0])
 
 class SeperateDemucs(SeperateAttributes):
     def seperate(self):

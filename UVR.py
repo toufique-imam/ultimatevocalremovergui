@@ -216,6 +216,10 @@ def get_other_network_download_list(online_data):
 
     return download_list, download_links
 
+def is_roformer_download(selection):
+    '''Roformer entries of the MDX-Net download lists ("Roformer Model: ...") go to ROFORMER_MODELS_DIR.'''
+    return selection.startswith(ROFORMER_NAME)
+
 def download_mdx_c_config(config, download_links):
     '''Downloads an MDX23C/Roformer yaml config into MDX_C_CONFIG_PATH if it isn't there yet.'''
     config_local = os.path.join(MDX_C_CONFIG_PATH, config)
@@ -252,6 +256,7 @@ debugger = []
 MODELS_DIR = os.path.join(BASE_PATH, 'models')
 VR_MODELS_DIR = os.path.join(MODELS_DIR, 'VR_Models')
 MDX_MODELS_DIR = os.path.join(MODELS_DIR, 'MDX_Net_Models')
+ROFORMER_MODELS_DIR = os.path.join(MODELS_DIR, 'Roformer_Models') # their hashes & yaml configs stay in MDX_HASH_DIR
 DEMUCS_MODELS_DIR = os.path.join(MODELS_DIR, 'Demucs_Models')
 DEMUCS_NEWER_REPO_DIR = os.path.join(DEMUCS_MODELS_DIR, 'v3_v4_repo')
 MDX_MIXER_PATH = os.path.join(BASE_PATH, 'lib_v5', 'mixer.ckpt')
@@ -315,6 +320,9 @@ if not os.path.isdir(ENSEMBLE_TEMP_PATH):
     
 if not os.path.isdir(SAMPLE_CLIP_PATH):
     os.mkdir(SAMPLE_CLIP_PATH)
+
+if not os.path.isdir(ROFORMER_MODELS_DIR):
+    os.mkdir(ROFORMER_MODELS_DIR)
 
 model_hash_table = {}
 data = load_data()
@@ -484,6 +492,12 @@ class ModelData():
             is_not_vocal_stem = self.ensemble_primary_stem != VOCAL_STEM
             self.pre_proc_model_activated = root.is_demucs_pre_proc_model_activate_var.get() if is_not_vocal_stem else False
 
+        # Roformers have their own process method and folder, but run on the MDX-C engine with its settings
+        self.is_roformer_method = self.process_method == ROFORMER_ARCH_TYPE
+        self.mdx_models_dir = ROFORMER_MODELS_DIR if self.is_roformer_method else MDX_MODELS_DIR
+        if self.is_roformer_method:
+            self.process_method = MDX_ARCH_TYPE
+
         if self.process_method == VR_ARCH_TYPE:
             self.is_secondary_model_activated = root.vr_is_secondary_model_activate_var.get() if not is_secondary_model else False
             self.aggression_setting = float(int(root.aggression_setting_var.get())/100)
@@ -519,7 +533,8 @@ class ModelData():
                     self.model_status = False
                 
         if self.process_method == MDX_ARCH_TYPE:
-            self.is_secondary_model_activated = root.mdx_is_secondary_model_activate_var.get() if not is_secondary_model else False
+            # MDX-Net's secondary models are set up for MDX-Net models only
+            self.is_secondary_model_activated = root.mdx_is_secondary_model_activate_var.get() if not is_secondary_model and not self.is_roformer_method else False
             self.margin = int(root.margin_var.get())
             self.chunks = 0
             self.mdx_segment_size = int(root.mdx_segment_size_var.get())
@@ -688,10 +703,10 @@ class ModelData():
             if self.model_name in chosen_mdx_model:
                 if file_name.endswith(CKPT):
                     ext = ''
-                self.model_path = os.path.join(MDX_MODELS_DIR, f"{file_name}{ext}")
+                self.model_path = os.path.join(self.mdx_models_dir, f"{file_name}{ext}")
                 break
         else:
-            self.model_path = os.path.join(MDX_MODELS_DIR, f"{self.model_name}{ext}")
+            self.model_path = os.path.join(self.mdx_models_dir, f"{self.model_name}{ext}")
             
         self.mixer_path = os.path.join(MDX_MODELS_DIR, f"mixer_val.ckpt")
     
@@ -1416,6 +1431,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.method_mapper = {
             VR_ARCH_PM: self.vr_model_var,
             MDX_ARCH_TYPE: self.mdx_net_model_var,
+            ROFORMER_ARCH_TYPE: self.roformer_model_var,
             DEMUCS_ARCH_TYPE: self.demucs_model_var}
 
         self.vr_secondary_model_vars = {'voc_inst_secondary_model': self.vr_voc_inst_secondary_model_var,
@@ -1521,6 +1537,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.lastest_version = ''
         self.model_download_demucs_var = tk.StringVar(value='')
         self.model_download_mdx_var = tk.StringVar(value='')
+        self.model_download_roformer_var = tk.StringVar(value='')
         self.model_download_vr_var = tk.StringVar(value='')
         self.selected_download_var = tk.StringVar(value=NO_MODEL)
         self.select_download_var = tk.StringVar(value='')
@@ -1642,6 +1659,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             model_data: List[ModelData] = [ModelData(model, VR_ARCH_TYPE)]
         if arch_type == MDX_ARCH_TYPE:
             model_data: List[ModelData] = [ModelData(model, MDX_ARCH_TYPE)]
+        if arch_type == ROFORMER_ARCH_TYPE:
+            model_data: List[ModelData] = [ModelData(model, ROFORMER_ARCH_TYPE)]
         if arch_type == DEMUCS_ARCH_TYPE:
             model_data: List[ModelData] = [ModelData(model, DEMUCS_ARCH_TYPE)]#
 
@@ -1661,6 +1680,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         
         self.vr_model_var.set(CHOOSE_MODEL)
         self.mdx_net_model_var.set(CHOOSE_MODEL)
+        self.roformer_model_var.set(CHOOSE_MODEL)
         self.model_data_table.clear()
         self.chosen_ensemble_var.set(CHOOSE_ENSEMBLE_OPTION)
         self.ensemble_main_stem_var.set(CHOOSE_STEM_PAIR)
@@ -1807,6 +1827,15 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         #self.mdx_net_model_var.trace_add('write', lambda *args: self.update_main_widget_states_mdx())
         self.help_hints(self.mdx_net_model_Label, text=CHOOSE_MODEL_HELP)
         
+        ### ROFORMER ### (shares MDX-Net's stems and MDX23C overlap widgets)
+
+        #  Choose Roformer Model
+        self.roformer_model_Label = self.main_window_LABEL_SET(self.options_Frame, CHOOSE_ROFORMER_MODEL_MAIN_LABEL)
+        self.roformer_model_Label_place = lambda:self.roformer_model_Label.place(x=0, y=LOW_MENU_Y[0], width=LEFT_ROW_WIDTH, height=LABEL_HEIGHT, relx=0, rely=6/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+        self.roformer_model_Option = ComboBoxMenu(self.options_Frame, textvariable=self.roformer_model_var, command=lambda event: self.selection_action(event, self.roformer_model_var, is_mdx_net=True))
+        self.roformer_model_Option_place = lambda:self.roformer_model_Option.place(x=0, y=LOW_MENU_Y[1], width=LEFT_ROW_WIDTH, height=OPTION_HEIGHT, relx=0, rely=7/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+        self.help_hints(self.roformer_model_Label, text=CHOOSE_MODEL_HELP)
+
         # MDX-Overlap
         self.overlap_mdx_Label = self.main_window_LABEL_SET(self.options_Frame, 'OVERLAP')
         self.overlap_mdx_Label_place = lambda:self.overlap_mdx_Label.place(x=MAIN_ROW_2_X[0], y=MAIN_ROW_2_Y[0], width=0, height=LABEL_HEIGHT, relx=2/3, rely=2/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
@@ -2066,6 +2095,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.segment_Option,
         self.mdx_net_model_Label,
         self.mdx_net_model_Option,
+        self.roformer_model_Label,
+        self.roformer_model_Option,
         self.overlap_mdx_Label,
         self.overlap_mdx_Option,
         self.overlap_mdx23_Option,
@@ -2117,6 +2148,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.is_wav_ensemble_Option)
         
         REFRESH_VARS = (self.mdx_net_model_var,
+                        self.roformer_model_var,
                         self.vr_model_var,
                         self.demucs_model_var,
                         # self.demucs_stems_var,
@@ -2129,6 +2161,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                         # self.is_secondary_stem_only_var,
                         self.model_download_demucs_var,
                         self.model_download_mdx_var,
+                        self.model_download_roformer_var,
                         self.model_download_vr_var,
                         self.select_download_var,
                         # self.is_primary_stem_only_Demucs_Text_var,
@@ -2612,7 +2645,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
 
     def right_click_select_settings_sub(self, parent_menu, process_method):
         saved_settings_sub_menu = tk.Menu(parent_menu, font=(MAIN_FONT_NAME, FONT_SIZE_1), tearoff=False)
-        # The Best Quality preset sets up the main window's MDX-Net, not one process method's settings
+        # The Best Quality preset sets up the main window's Roformer, not one process method's settings
         settings_options = self.last_found_settings + tuple(o for o in SAVE_SET_OPTIONS if o != BEST_QUALITY_PRESET)
 
         for settings_options in settings_options:
@@ -2639,7 +2672,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 menu.add_cascade(label='Select Saved Settings', menu=saved_settings_sub_load_for_menu)
                 menu.add_separator()
                 for method, option in settings_mapper.items():
-                    if method != ENSEMBLE_MODE or current_method == ENSEMBLE_MODE:
+                    if (method != ENSEMBLE_MODE or current_method == ENSEMBLE_MODE) and method != ROFORMER_ARCH_TYPE: # same window as MDX-Net's
                         menu.add_command(label=f'Advanced {method} Settings', command=option)
             elif current_method in settings_mapper:
                 menu.add_command(label=f'Advanced {current_method} Settings', command=settings_mapper[current_method])
@@ -2652,6 +2685,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             ENSEMBLE_MODE: lambda: self.check_is_menu_open(ENSEMBLE_OPTION),
             VR_ARCH_PM: lambda: self.check_is_menu_open(VR_OPTION),
             MDX_ARCH_TYPE: lambda: self.check_is_menu_open(MDX_OPTION),
+            ROFORMER_ARCH_TYPE: lambda: self.check_is_menu_open(MDX_OPTION), # batch size & overlap are on its MDX23C tab
             DEMUCS_ARCH_TYPE: lambda: self.check_is_menu_open(DEMUCS_OPTION)
         }
         
@@ -2659,12 +2693,13 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             ENSEMBLE_MODE: True,
             VR_ARCH_PM: self.vr_is_secondary_model_activate_var.get(),
             MDX_ARCH_TYPE: self.mdx_is_secondary_model_activate_var.get(),
+            ROFORMER_ARCH_TYPE: False,
             DEMUCS_ARCH_TYPE: self.demucs_is_secondary_model_activate_var.get()
         }
 
         # Submenu for saved settings
         saved_settings_sub_load_for_menu = tk.Menu(right_click_menu, font=(MAIN_FONT_NAME, FONT_SIZE_1), tearoff=False)
-        for label, arch_type in [(VR_ARCH_SETTING_LOAD, VR_ARCH_PM), (MDX_SETTING_LOAD, MDX_ARCH_TYPE), (DEMUCS_SETTING_LOAD, DEMUCS_ARCH_TYPE), (ALL_ARCH_SETTING_LOAD, None)]:
+        for label, arch_type in [(VR_ARCH_SETTING_LOAD, VR_ARCH_PM), (MDX_SETTING_LOAD, MDX_ARCH_TYPE), (ROFORMER_SETTING_LOAD, ROFORMER_ARCH_TYPE), (DEMUCS_SETTING_LOAD, DEMUCS_ARCH_TYPE), (ALL_ARCH_SETTING_LOAD, None)]:
             submenu = self.right_click_select_settings_sub(saved_settings_sub_load_for_menu, arch_type)
             saved_settings_sub_load_for_menu.add_cascade(label=label, menu=submenu)
 
@@ -3474,6 +3509,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.model_download_mdx_Option = ComboBoxMenu(settings_menu_download_center_Frame, textvariable=self.model_download_mdx_var, width=READ_ONLY_COMBO_WIDTH)
         self.model_download_mdx_Option.grid(pady=MENU_PADDING_1)
 
+        self.model_download_roformer_Button = ttk.Radiobutton(settings_menu_download_center_Frame, text='Roformer', width=8, variable=self.select_download_var, value=ROFORMER_ARCH_TYPE, command=lambda:self.download_list_state())
+        self.model_download_roformer_Button.grid(pady=MENU_PADDING_1)
+        self.model_download_roformer_Option = ComboBoxMenu(settings_menu_download_center_Frame, textvariable=self.model_download_roformer_var, width=READ_ONLY_COMBO_WIDTH)
+        self.model_download_roformer_Option.grid(pady=MENU_PADDING_1)
+
         self.model_download_demucs_Button = ttk.Radiobutton(settings_menu_download_center_Frame, text='Demucs', width=8, variable=self.select_download_var, value='Demucs', command=lambda:self.download_list_state())
         self.model_download_demucs_Button.grid(pady=MENU_PADDING_1)
         self.model_download_demucs_Option = ComboBoxMenu(settings_menu_download_center_Frame, textvariable=self.model_download_demucs_var, width=READ_ONLY_COMBO_WIDTH)
@@ -3507,16 +3547,19 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
 
         self.download_center_Buttons = (self.model_download_vr_Button,
                                         self.model_download_mdx_Button,
+                                        self.model_download_roformer_Button,
                                         self.model_download_demucs_Button,
                                         self.download_Button,
                                         self.download_key_Button)
         
         self.download_lists = (self.model_download_vr_Option,
                                self.model_download_mdx_Option,
+                               self.model_download_roformer_Option,
                                self.model_download_demucs_Option)
         
         self.download_list_vars = (self.model_download_vr_var,
                                    self.model_download_mdx_var,
+                                   self.model_download_roformer_var,
                                    self.model_download_demucs_var)
         
         self.online_data_refresh()
@@ -3790,6 +3833,9 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         is_mdx_combine_stems_Option.grid()
         self.help_hints(is_mdx_combine_stems_Option, text=IS_DEMUCS_COMBINE_STEMS_HELP)
         
+        open_roformer_model_dir_Button = ttk.Button(mdx_net23_frame, text=OPEN_ROFORMER_MODELS_FOLDER_TEXT, command=lambda:OPEN_FILE_func(ROFORMER_MODELS_DIR), width=VR_BUT_WIDTH)
+        open_roformer_model_dir_Button.grid(pady=MENU_PADDING_1)
+
         mdx23_close_Button = ttk.Button(mdx_net23_frame, text=CLOSE_WINDOW, command=lambda:self.menu_advanced_mdx_options_close_window())
         mdx23_close_Button.grid(pady=MENU_PADDING_2)
         
@@ -4313,13 +4359,13 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 main_selection = vr_download_list[main_selection]
                 model_dir = VR_MODELS_DIR
             elif MDX_ARCH_TYPE in main_selection or main_selection in mdx_download_list:
+                model_dir = ROFORMER_MODELS_DIR if is_roformer_download(main_selection) else MDX_MODELS_DIR
+
                 if isinstance(mdx_download_list[main_selection], dict):
                     main_selection = mdx_download_list[main_selection]
                     main_selection = list(main_selection.keys())[0]
                 else:
                     main_selection = mdx_download_list[main_selection]
-                    
-                model_dir = MDX_MODELS_DIR
 
             elif DEMUCS_ARCH_TYPE in main_selection:
                 model_dir = DEMUCS_NEWER_REPO_DIR if 'v3' in main_selection or 'v4' in main_selection else DEMUCS_MODELS_DIR
@@ -4354,9 +4400,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         manual_downloads_menu_select_Option = ttk.OptionMenu(manual_downloads_menu_Frame, model_selection_var)
         manual_downloads_menu_select_VR_Option = tk.Menu(manual_downloads_menu_select_Option['menu'])
         manual_downloads_menu_select_MDX_Option = tk.Menu(manual_downloads_menu_select_Option['menu'])
+        manual_downloads_menu_select_ROFORMER_Option = tk.Menu(manual_downloads_menu_select_Option['menu'])
         manual_downloads_menu_select_DEMUCS_Option = tk.Menu(manual_downloads_menu_select_Option['menu'])
         manual_downloads_menu_select_Option['menu'].add_cascade(label='VR Models', menu= manual_downloads_menu_select_VR_Option)
         manual_downloads_menu_select_Option['menu'].add_cascade(label='MDX-Net Models', menu= manual_downloads_menu_select_MDX_Option)
+        manual_downloads_menu_select_Option['menu'].add_cascade(label='Roformer Models', menu= manual_downloads_menu_select_ROFORMER_Option)
         manual_downloads_menu_select_Option['menu'].add_cascade(label='Demucs Models', menu= manual_downloads_menu_select_DEMUCS_Option)
 
         for model_selection_vr in vr_download_list.keys():
@@ -4378,8 +4426,10 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             #print(model_name)
                 
             if model_name: 
-                if not os.path.isfile(os.path.join(MDX_MODELS_DIR, model_name)):
-                    manual_downloads_menu_select_MDX_Option.add_radiobutton(label=model_selection_mdx, variable=model_selection_var, command=get_links)
+                is_roformer = is_roformer_download(model_selection_mdx)
+                select_option = manual_downloads_menu_select_ROFORMER_Option if is_roformer else manual_downloads_menu_select_MDX_Option
+                if not os.path.isfile(os.path.join(ROFORMER_MODELS_DIR if is_roformer else MDX_MODELS_DIR, model_name)):
+                    select_option.add_radiobutton(label=model_selection_mdx, variable=model_selection_var, command=get_links)
             
         for model_selection_demucs in demucs_download_list.keys():
             manual_downloads_menu_select_DEMUCS_Option.add_radiobutton(label=model_selection_demucs, variable=model_selection_var, command=get_links)
@@ -5506,8 +5556,14 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                     
             configure_combobox(self.model_download_vr_Option, model_download_vr_list, self.model_download_vr_var, VR_ARCH_TYPE, model_download_vr_name)
 
-        if model_type in [MDX_ARCH_TYPE, ALL_TYPES]:
+        if model_type in [MDX_ARCH_TYPE, ROFORMER_ARCH_TYPE, ALL_TYPES]:
+            model_download_roformer_list, model_download_roformer_name = [], "roformerdownload"
+
             for (selectable, model) in self.mdx_download_list.items():
+                is_roformer = is_roformer_download(selectable)
+                if not model_type in [ALL_TYPES, ROFORMER_ARCH_TYPE if is_roformer else MDX_ARCH_TYPE]:
+                    continue
+
                 if isinstance(model, dict):
                     items_list = list(model.items())
                     model_name, config = items_list[0]
@@ -5519,10 +5575,16 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 else:
                     model_name = str(model)
 
-                if not os.path.isfile(os.path.join(MDX_MODELS_DIR, model_name)):
+                if is_roformer:
+                    if not os.path.isfile(os.path.join(ROFORMER_MODELS_DIR, model_name)):
+                        model_download_roformer_list.append(selectable)
+                elif not os.path.isfile(os.path.join(MDX_MODELS_DIR, model_name)):
                     model_download_mdx_list.append(selectable)
-                    
-            configure_combobox(self.model_download_mdx_Option, model_download_mdx_list, self.model_download_mdx_var, MDX_ARCH_TYPE, model_download_mdx_name)
+
+            if model_type != ROFORMER_ARCH_TYPE:
+                configure_combobox(self.model_download_mdx_Option, model_download_mdx_list, self.model_download_mdx_var, MDX_ARCH_TYPE, model_download_mdx_name)
+            if model_type != MDX_ARCH_TYPE:
+                configure_combobox(self.model_download_roformer_Option, model_download_roformer_list, self.model_download_roformer_var, ROFORMER_ARCH_TYPE, model_download_roformer_name)
 
         if model_type in [DEMUCS_ARCH_TYPE, ALL_TYPES]:
             for (selectable, model) in self.demucs_download_list.items():  
@@ -5600,6 +5662,10 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 self.model_download_mdx_Option.configure(state=READ_ONLY)
                 self.selected_download_var = self.model_download_mdx_var
                 self.download_list_fill(model_type=MDX_ARCH_TYPE)
+            if self.select_download_var.get() == ROFORMER_ARCH_TYPE:
+                self.model_download_roformer_Option.configure(state=READ_ONLY)
+                self.selected_download_var = self.model_download_roformer_var
+                self.download_list_fill(model_type=ROFORMER_ARCH_TYPE)
             if self.select_download_var.get() == DEMUCS_ARCH_TYPE:
                 self.model_download_demucs_Option.configure(state=READ_ONLY)
                 self.selected_download_var = self.model_download_demucs_var
@@ -5626,7 +5692,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                     self.download_save_path_var.set(os.path.join(VR_MODELS_DIR, selected_model[1]))
                     break
                 
-        if type == MDX_ARCH_TYPE:
+        if type in [MDX_ARCH_TYPE, ROFORMER_ARCH_TYPE]:
             for selected_model in self.mdx_download_list.items():
                 if selection in selected_model:
                     if isinstance(selected_model[1], dict):
@@ -5635,7 +5701,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                         model_name = str(selected_model[1])
                     model_link = getattr(self, 'mdx_download_links', {}).get(model_name, "{}{}".format(model_repo, model_name))
                     self.download_link_path_var.set(model_link)
-                    self.download_save_path_var.set(os.path.join(MDX_MODELS_DIR, model_name))
+                    self.download_save_path_var.set(os.path.join(ROFORMER_MODELS_DIR if type == ROFORMER_ARCH_TYPE else MDX_MODELS_DIR, model_name))
                     break
 
         if type == DEMUCS_ARCH_TYPE:
@@ -5814,10 +5880,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         
         new_vr_models = self.get_files_from_dir(VR_MODELS_DIR, PTH)
         new_mdx_models = self.get_files_from_dir(MDX_MODELS_DIR, (ONNX, CKPT), is_mdxnet=True)
+        new_roformer_models = self.get_files_from_dir(ROFORMER_MODELS_DIR, CKPT, is_mdxnet=True)
         new_demucs_models = self.get_files_from_dir(DEMUCS_MODELS_DIR, (CKPT, '.gz', '.th')) + self.get_files_from_dir(DEMUCS_NEWER_REPO_DIR, YAML)
         new_ensembles_found = self.get_files_from_dir(ENSEMBLE_CACHE_DIR, JSON)
         new_settings_found = self.get_files_from_dir(SETTINGS_CACHE_DIR, JSON)
-        new_models_found = new_vr_models + new_mdx_models + new_demucs_models
+        new_models_found = new_vr_models + new_mdx_models + new_roformer_models + new_demucs_models
         is_online = self.is_online_model_menu
         
         def loop_directories(option_menu:ComboBoxMenu, option_var, model_list, model_type, name_mapper=None):
@@ -5833,7 +5900,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             option_menu.set(current_selection)
             option_menu.update_dropdown_size(option_list, model_type)
             
-            if self.is_root_defined_var.get() and model_type == MDX_ARCH_TYPE and self.chosen_process_method_var.get() == MDX_ARCH_TYPE:
+            if self.is_root_defined_var.get() and model_type in [MDX_ARCH_TYPE, ROFORMER_ARCH_TYPE] and self.chosen_process_method_var.get() == model_type:
                 self.selection_action_models_sub(current_selection, model_type, option_var)
                 
             return tuple(f"{model_type}{ENSEMBLE_PARTITION}{model_name}" for model_name in sorted_options)
@@ -5843,10 +5910,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             
             vr_model_list = loop_directories(self.vr_model_Option, self.vr_model_var, new_vr_models, VR_ARCH_TYPE, name_mapper=None)
             mdx_model_list = loop_directories(self.mdx_net_model_Option, self.mdx_net_model_var, new_mdx_models, MDX_ARCH_TYPE, name_mapper=self.mdx_name_select_MAPPER)
+            roformer_model_list = loop_directories(self.roformer_model_Option, self.roformer_model_var, new_roformer_models, ROFORMER_ARCH_TYPE, name_mapper=self.mdx_name_select_MAPPER)
             demucs_model_list = loop_directories(self.demucs_model_Option, self.demucs_model_var, new_demucs_models, DEMUCS_ARCH_TYPE, name_mapper=self.demucs_name_select_MAPPER)
             
-            self.ensemble_model_list = vr_model_list + mdx_model_list + demucs_model_list
-            self.default_change_model_list = vr_model_list + mdx_model_list
+            self.ensemble_model_list = vr_model_list + mdx_model_list + roformer_model_list + demucs_model_list
+            self.default_change_model_list = vr_model_list + mdx_model_list + roformer_model_list
             self.last_found_models = new_models_found
             self.is_online_model_menu = self.is_online
             
@@ -5874,8 +5942,9 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                                                       base_options=SAVE_SET_OPTIONS
         )
 
-    def update_main_widget_states_mdx(self):
-        if not self.mdx_net_model_var.get() == DOWNLOAD_MORE:
+    def update_main_widget_states_mdx(self, model_var=None):
+        model_var = model_var or self.mdx_net_model_var
+        if not model_var.get() == DOWNLOAD_MORE:
             self.update_main_widget_states()
 
     def move_widget_offscreen(self, widget, step=10):
@@ -5919,6 +5988,12 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                           self.mdx_net_model_Option_place, 
                           general_shared_buttons, 
                           stem_save_options, 
+                          no_ensemble_shared)
+        elif process_method == ROFORMER_ARCH_TYPE: # stems & overlap are placed once a model is chosen
+            place_widgets(self.roformer_model_Label_place,
+                          self.roformer_model_Option_place,
+                          general_shared_buttons,
+                          stem_save_options,
                           no_ensemble_shared)
         elif process_method == VR_ARCH_PM:
             place_widgets(self.vr_model_Label_place, self.vr_model_Option_place, 
@@ -6048,7 +6123,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         else:
             self.is_stem_only_Options_Enable()
 
-        if not self.mdx_net_model_var.get() == CHOOSE_MODEL:
+        model_var = self.roformer_model_var if self.chosen_process_method_var.get() == ROFORMER_ARCH_TYPE else self.mdx_net_model_var
+        if not model_var.get() == CHOOSE_MODEL:
             self.mdxnet_stems_Option['values'] = model_stems
             self.mdxnet_stems_Option.command(lambda e:self.update_stem_checkbox_labels(self.mdxnet_stems_var.get()))
                             
@@ -6100,7 +6176,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         selected_value = CHOOSE_MODEL if selected_value == OPT_SEPARATOR else selected_value
         option_var.set(selected_value)
         if is_mdx_net:
-            self.update_main_widget_states_mdx()
+            self.update_main_widget_states_mdx(option_var)
         self.selection_action_models(selected_value)
 
     def selection_action_models(self, selection):
@@ -6153,6 +6229,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 self.mdx_segment_size_Option_place()
                 self.overlap_mdx_Label_place()
                 self.overlap_mdx_Option_place()
+                self.update_stem_checkbox_labels(PRIMARY_STEM, disable_boxes=True)
+            elif ai_type == ROFORMER_ARCH_TYPE:
                 self.update_stem_checkbox_labels(PRIMARY_STEM, disable_boxes=True)
         else:
             if ai_type == DEMUCS_ARCH_TYPE:
@@ -6322,16 +6400,16 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             self.save_current_settings_var.set(SELECT_SAVED_SET)
 
     def load_best_quality_preset(self):
-        """Switches to MDX-Net with the model and settings of the Best Quality preset"""
+        """Switches to Roformer with the model and settings of the Best Quality preset"""
 
-        model = next((m for m in self.mdx_net_model_Option['values'] if m == BEST_QUALITY_MODEL), None)
+        model = next((m for m in self.roformer_model_Option['values'] if m == BEST_QUALITY_MODEL), None)
         if not model:
             self.error_dialoge(BEST_QUALITY_MISSING_ERROR)
             return
 
         preset = BEST_QUALITY_DATA
-        self.chosen_process_method_var.set(MDX_ARCH_TYPE)
-        self.mdx_net_model_var.set(model)
+        self.chosen_process_method_var.set(ROFORMER_ARCH_TYPE)
+        self.roformer_model_var.set(model)
         self.overlap_mdx23_var.set(preset['overlap_mdx23'])
         self.mdx_batch_size_var.set(preset['mdx_batch_size'])
         self.denoise_option_var.set(preset['denoise_option'])
@@ -6343,8 +6421,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.semitone_shift_var.set(preset['semitone_shift'])
         self.model_sample_mode_var.set(preset['model_sample_mode'])
         self.is_gpu_conversion_var.set(self.is_gpu_available)
-        # Shows MDX-Net's widgets for the preset's model, as choosing them in the main window does
-        self.selection_action_process_method(MDX_ARCH_TYPE, is_from_conv_menu=True)
+        # Shows Roformer's widgets for the preset's model, as choosing them in the main window does
+        self.selection_action_process_method(ROFORMER_ARCH_TYPE, is_from_conv_menu=True)
 
     def handle_saved_settings(self, selection, process_method):
         """Handles actions for saved settings."""
@@ -6408,6 +6486,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             continue_process = lambda:False if self.vr_model_var.get() == CHOOSE_MODEL else True
         if self.chosen_process_method_var.get() == MDX_ARCH_TYPE:
             continue_process = lambda:False if self.mdx_net_model_var.get() == CHOOSE_MODEL else True
+        if self.chosen_process_method_var.get() == ROFORMER_ARCH_TYPE:
+            continue_process = lambda:False if self.roformer_model_var.get() == CHOOSE_MODEL else True
         if self.chosen_process_method_var.get() == DEMUCS_ARCH_TYPE:
             continue_process = lambda:False if self.demucs_model_var.get() == CHOOSE_MODEL else True
 
@@ -6929,6 +7009,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
                 model = self.assemble_model_data(self.vr_model_var.get(), VR_ARCH_TYPE)
             if self.chosen_process_method_var.get() == MDX_ARCH_TYPE:
                 model = self.assemble_model_data(self.mdx_net_model_var.get(), MDX_ARCH_TYPE)
+            if self.chosen_process_method_var.get() == ROFORMER_ARCH_TYPE:
+                model = self.assemble_model_data(self.roformer_model_var.get(), ROFORMER_ARCH_TYPE)
             if self.chosen_process_method_var.get() == DEMUCS_ARCH_TYPE:
                 model = self.assemble_model_data(self.demucs_model_var.get(), DEMUCS_ARCH_TYPE)
 
@@ -7152,6 +7234,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         
         #MDX-Net Vars
         self.mdx_net_model_var = tk.StringVar(value=data['mdx_net_model'])
+        self.roformer_model_var = tk.StringVar(value=data['roformer_model'])
         self.chunks_var = tk.StringVar(value=data['chunks'])
         self.margin_var = tk.StringVar(value=data['margin'])
         self.compensate_var = tk.StringVar(value=data['compensate'])
@@ -7323,6 +7406,11 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             self.mdx_bass_secondary_model_scale_var.set(loaded_setting['mdx_bass_secondary_model_scale'])
             self.mdx_drums_secondary_model_scale_var.set(loaded_setting['mdx_drums_secondary_model_scale'])
         
+        if process_method == ROFORMER_ARCH_TYPE or is_default_reset: # its other settings are MDX23C's
+            self.roformer_model_var.set(loaded_setting['roformer_model'])
+            self.overlap_mdx23_var.set(loaded_setting['overlap_mdx23'])
+            self.mdx_batch_size_var.set(loaded_setting['mdx_batch_size'])
+
         if is_default_reset:
             self.is_save_all_outputs_ensemble_var.set(loaded_setting['is_save_all_outputs_ensemble'])
             self.is_append_ensemble_name_var.set(loaded_setting['is_append_ensemble_name'])
@@ -7431,6 +7519,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             'is_demucs_pre_proc_model_activate': self.is_demucs_pre_proc_model_activate_var.get(),
             'is_demucs_pre_proc_model_inst_mix': self.is_demucs_pre_proc_model_inst_mix_var.get(),
             'mdx_net_model': self.mdx_net_model_var.get(),
+            'roformer_model': self.roformer_model_var.get(),
             'chunks': self.chunks_var.get(),
             'margin': self.margin_var.get(),
             'compensate': self.compensate_var.get(),

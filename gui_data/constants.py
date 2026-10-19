@@ -20,6 +20,7 @@ FG_COLOR = '#13849f'
 #Model Types
 VR_ARCH_TYPE = 'VR Arc'
 MDX_ARCH_TYPE = 'MDX-Net'
+ROFORMER_ARCH_TYPE = 'Roformer'
 DEMUCS_ARCH_TYPE = 'Demucs'
 VR_ARCH_PM = 'VR Architecture'
 ENSEMBLE_MODE = 'Ensemble Mode'
@@ -362,7 +363,7 @@ else:
 
 MANUAL_ENSEMBLE_OPTIONS = (MIN_SPEC, MAX_SPEC, AUDIO_AVERAGE, COMBINE_INPUTS)
 
-PROCESS_METHODS = (VR_ARCH_PM, MDX_ARCH_TYPE, DEMUCS_ARCH_TYPE, ENSEMBLE_MODE, AUDIO_TOOLS)
+PROCESS_METHODS = (VR_ARCH_PM, MDX_ARCH_TYPE, ROFORMER_ARCH_TYPE, DEMUCS_ARCH_TYPE, ENSEMBLE_MODE, AUDIO_TOOLS)
 
 DEMUCS_SEGMENTS = (DEF_OPT, '1', '5', '10', '15', '20', 
                   '25', '30', '35', '40', '45', '50', 
@@ -556,6 +557,7 @@ REG_VOL_COMP = r'^\d+\.\d{1,9}$'
 # Sub Menu
 VR_ARCH_SETTING_LOAD = 'Load for VR Arch'
 MDX_SETTING_LOAD = 'Load for MDX-Net'
+ROFORMER_SETTING_LOAD = 'Load for Roformer'
 DEMUCS_SETTING_LOAD = 'Load for Demucs'
 ALL_ARCH_SETTING_LOAD = 'Load for Full Application'
 
@@ -612,6 +614,7 @@ DEFAULT_DATA = {
         'is_demucs_pre_proc_model_activate': False,
         'is_demucs_pre_proc_model_inst_mix': False,
         'mdx_net_model': CHOOSE_MODEL,
+        'roformer_model': CHOOSE_MODEL,
         'chunks': CHUNKS[0],
         'margin': 44100,
         'compensate': AUTO_SELECT,
@@ -692,7 +695,7 @@ DEFAULT_DATA = {
 # turned on when a GPU is available
 BEST_QUALITY_MODEL = 'BS-Roformer-Viperx-1297'
 BEST_QUALITY_DATA = {
-        'mdx_net_model': BEST_QUALITY_MODEL,
+        'roformer_model': BEST_QUALITY_MODEL,
         'overlap_mdx23': DEFAULT,
         'mdx_batch_size': DEF_OPT,
         'denoise_option': DENOISE_NONE,
@@ -749,6 +752,7 @@ SETTING_CHECK = ('vr_model',
                'demucs_drums_secondary_model_scale',
                'demucs_stems',
                'mdx_net_model',
+               'roformer_model',
                'chunks',
                'margin',
                'compensate',
@@ -1164,6 +1168,7 @@ CHOSEN_PROCESS_METHOD_HELP = (
     '\n'
     '• VR Architecture: Uses magnitude spectrograms for source separation.\n'
     '• MDX-Net: Employs a Hybrid Spectrogram network for source separation.\n'
+    '• Roformer: Band-split/Mel-band transformer networks (BS-Roformer, MelBand Roformer), the highest quality models.\n'
     '• Demucs v3: Also utilizes a Hybrid Spectrogram network for source separation.\n'
     '• Ensemble Mode: Combine results from multiple models and networks for optimal results.\n'
     '• Audio Tools: Additional utilities for added convenience.'
@@ -1362,7 +1367,7 @@ EXIT_HALTED_PROCESS_ERROR = 'Halting Process', 'Please wait for the application 
 EXIT_DOWNLOAD_ERROR = 'Active Download', 'Please stop the download or wait for it to complete before you exit.'
 SET_TO_DEFAULT_PROCESS_ERROR = 'Active Process', 'You cannot reset all of the application settings during an active process.'
 SET_TO_ANY_PROCESS_ERROR = 'Active Process', 'You cannot reset the application settings during an active process.'
-BEST_QUALITY_MISSING_ERROR = 'Model Not Installed', f'The {BEST_QUALITY_PRESET} preset uses the "{BEST_QUALITY_MODEL}" model.\n\nDownload it from the Download Center (MDX-Net models) and select the preset again.'
+BEST_QUALITY_MISSING_ERROR = 'Model Not Installed', f'The {BEST_QUALITY_PRESET} preset uses the "{BEST_QUALITY_MODEL}" model.\n\nDownload it from the Download Center (Roformer models) and select the preset again.'
 VIDEO_LINK_PROCESS_ERROR = 'Active Process', 'Please stop the active process or wait for it to complete before processing a video link.'
 VIDEO_LINK_NO_YT_DLP_ERROR = 'yt-dlp Not Installed', 'Processing video links requires yt-dlp.\n\nInstall it with "pip install -U yt-dlp" and restart the application.'
 VIDEO_LINK_NO_FFMPEG_ERROR = 'FFmpeg Not Found', 'Processing video links requires FFmpeg.\n\nPlease install FFmpeg and make sure it is on your PATH.'
@@ -1406,6 +1411,7 @@ ENSEMBLES_SAVED = 'Ensembled outputs saved!\n\n'
 CHOOSE_PROC_METHOD_MAIN_LABEL = 'CHOOSE PROCESS METHOD'
 SELECT_SAVED_SETTINGS_MAIN_LABEL = 'SELECT SAVED SETTINGS'
 CHOOSE_MDX_MODEL_MAIN_LABEL = 'CHOOSE MDX-NET MODEL'
+CHOOSE_ROFORMER_MODEL_MAIN_LABEL = 'CHOOSE ROFORMER MODEL'
 BATCHES_MDX_MAIN_LABEL = 'BATCH SIZE'
 VOL_COMP_MDX_MAIN_LABEL = 'VOLUME COMPENSATION'
 SEGMENT_MDX_MAIN_LABEL = 'SEGMENT SIZE'
@@ -1528,6 +1534,7 @@ OPEN_LINK_TO_MODEL_TEXT = 'Open Link to Model'
 OPEN_MODEL_DIRECTORY_TEXT = 'Open Model Directory'
 OPEN_MODEL_FOLDER_TEXT = 'Open Model Folder'
 OPEN_MODELS_FOLDER_TEXT = 'Open Models Folder'
+OPEN_ROFORMER_MODELS_FOLDER_TEXT = 'Open Roformer Models Folder'
 PHASE_SHIFTS_TEXT = 'Phase Shifts'
 POST_PROCESS_TEXT = 'Post-Process'
 POST_PROCESS_THRESHOLD_TEXT = 'Post-process Threshold'

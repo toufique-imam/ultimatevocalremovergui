@@ -1,6 +1,7 @@
 .claude
 .gradle
 android/app/build
+android/app/.cxx
 android/build
 downloaded
 __pycache__

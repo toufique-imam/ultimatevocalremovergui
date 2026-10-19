@@ -30,6 +30,15 @@ class VerifiedEngine(
     private val minSnrDb: Double? = null,
     /** With [minSnrDb]: windows whose reference output RMS is below this are too quiet to judge by level. */
     private val minLevel: Double = 0.0,
+    /**
+     * How much faster the fast engine must be on the compared window to be kept (1.1: at most
+     * 1/1.1 of the reference's time), so run-to-run noise (thermal throttling) doesn't pick an engine
+     * that is only about as fast.
+     */
+    private val minSpeedup: Double = 1.0,
+    /** [backend] names for the two engines. */
+    private val fastName: String = "gpu",
+    private val referenceName: String = "cpu",
     private val tag: String = "VerifiedEngine"
 ) : InferenceEngine {
 
@@ -37,7 +46,7 @@ class VerifiedEngine(
     private var reference: InferenceEngine? = null
     private var active: InferenceEngine? = null
 
-    /** Which engine ended up running the windows: "gpu", "cpu", or "pending". */
+    /** Which engine ended up running the windows: [fastName], [referenceName], or "pending". */
     var backend: String = "pending"
         private set
 
@@ -46,10 +55,10 @@ class VerifiedEngine(
 
         val fastEngine = fast
         if (fastEngine != null && decisionKey != null && decision(decisionKey) == true) {
-            return use(fastEngine, "gpu").runBatch(data, shape)
+            return use(fastEngine, fastName).runBatch(data, shape)
         }
         val ref = reference ?: referenceFactory!!().also { reference = it; referenceFactory = null }
-        if (fastEngine == null) return use(ref, "cpu").runBatch(data, shape)
+        if (fastEngine == null) return use(ref, referenceName).runBatch(data, shape)
 
         var t0 = System.nanoTime()
         val expected = ref.runBatch(data, shape)
@@ -68,18 +77,18 @@ class VerifiedEngine(
         val snr = snrDb(got, expected)
 
         val accurate = if (minSnrDb != null) snr >= minSnrDb else err <= tolerance
-        val keepFast = accurate && fastMs < refMs
+        val keepFast = accurate && fastMs * minSpeedup < refMs
         Log.i(tag, "Fast engine: max|Δ| = $err, SNR = ${"%.1f".format(snr)} dB (reference RMS ${"%.3g".format(rms(expected))}), ${fastMs} ms vs reference ${refMs} ms → " +
                 if (keepFast) "using fast engine" else "using reference")
         decisionKey?.let { remember(it, keepFast) }
         return if (keepFast) {
             ref.close()
-            use(fastEngine, "gpu")
+            use(fastEngine, fastName)
             got!!
         } else {
             fastEngine.close()
             fast = null
-            use(ref, "cpu")
+            use(ref, referenceName)
             expected
         }
     }

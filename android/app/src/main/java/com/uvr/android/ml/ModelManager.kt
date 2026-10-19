@@ -23,6 +23,9 @@ object ModelManager {
     private const val TAG = "ModelManager"
     private const val MODELS_DIR = "models"
 
+    /** Optional files beside a model with its base name (extension → what they are): other runtimes' versions. */
+    private val COMPANIONS = mapOf("tflite" to "GPU", "mnn" to "MNN")
+
     private lateinit var appContext: Context
 
     /** All models discovered at startup or after [scanModels]. */
@@ -147,8 +150,9 @@ object ModelManager {
      */
     fun importModel(uri: Uri): ModelInfo {
         val name = FileUtils.displayName(appContext, uri)
-        val isGpuCompanion = name.endsWith(".tflite", ignoreCase = true)
-        require(ModelFormat.fromFileName(name) != null || isGpuCompanion) {
+        val companionKind = COMPANIONS.entries.firstOrNull { name.endsWith(".${it.key}", ignoreCase = true) }?.value
+        val isCompanion = companionKind != null
+        require(ModelFormat.fromFileName(name) != null || isCompanion) {
             "“$name” isn't a model file — choose a .ptl, .onnx or .demucs file"
         }
         val dest = File(getModelsDir(), name)
@@ -162,14 +166,15 @@ object ModelManager {
             tmp.delete()
         }
         scanModels()
-        // A .tflite is the GPU version of the .ptl (VR) or .onnx (MDX-Net) with the same name, not a model of its own
+        // A .tflite (GPU) or .mnn (MNN CPU) is another version of the .ptl (VR) or .onnx (MDX-Net) with the
+        // same name, not a model of its own
         val base = dest.name.substringBeforeLast('.')
-        val owners = if (isGpuCompanion) listOf(ModelFormat.PTL, ModelFormat.ONNX).map { "$base.${it.extension}" } else listOf(dest.name)
+        val owners = if (isCompanion) listOf(ModelFormat.PTL, ModelFormat.ONNX).map { "$base.${it.extension}" } else listOf(dest.name)
         return owners.firstNotNullOfOrNull { owner -> availableModels.firstOrNull { it.filePath == File(getModelsDir(), owner).absolutePath } }
             // A Demucs sub-model: its manifest is the model
             ?: availableModels.firstOrNull { m -> m.demucsMeta?.models?.any { it.file == name } == true }
             ?: throw IllegalStateException(
-                if (isGpuCompanion) "saved $name (GPU version) — import ${owners.joinToString(" or ")} to use it"
+                if (isCompanion) "saved $name ($companionKind version) — import ${owners.joinToString(" or ")} to use it"
                 else "saved $name — import the .demucs file it belongs to"
             )
     }
@@ -178,7 +183,7 @@ object ModelManager {
     fun deleteModel(model: ModelInfo): Boolean {
         if (model.source != ModelSource.FILE) return false
         val deleted = File(model.filePath!!).delete()
-        resolveCompanionFile(model, "tflite")?.delete()
+        COMPANIONS.keys.forEach { resolveCompanionFile(model, it)?.delete() }
         model.demucsMeta?.models?.forEach { File(model.filePath).resolveSibling(it.file).delete() }
         scanModels()
         return deleted

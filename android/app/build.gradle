@@ -6,6 +6,7 @@ plugins {
 android {
     namespace 'com.uvr.android'
     compileSdk 34
+    ndkVersion "27.2.12479018"   // builds libuvr_mnn.so
 
     defaultConfig {
         applicationId "com.uvr.android"
@@ -22,6 +23,21 @@ android {
         // ONNX Runtime ABI filters — keep arm64 for modern devices, add x86_64 for emulator
         ndk {
             abiFilters "arm64-v8a", "x86_64"
+        }
+
+        // libuvr_mnn.so (MNN CPU engine, src/main/cpp). MNN is always built optimised: at -O0
+        // (debug builds) it would run the models many times slower.
+        externalNativeBuild {
+            cmake {
+                arguments "-DCMAKE_BUILD_TYPE=Release", "-DANDROID_STL=c++_static"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
         }
     }
 
@@ -49,7 +65,7 @@ android {
     // PyTorch's AssetManager-based loader requires assets to be stored
     // uncompressed so they can be memory-mapped directly.
     aaptOptions {
-        noCompress "ptl", "tflite"
+        noCompress "ptl", "tflite", "mnn"
     }
 
     composeOptions {

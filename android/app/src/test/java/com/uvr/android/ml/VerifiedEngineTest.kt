@@ -76,4 +76,40 @@ class VerifiedEngineTest {
         again.runBatch(silent, shape)
         assertEquals("gpu", again.backend)
     }
+
+    @Test
+    fun lazyFastEngineIsCreatedAfterTheReferenceRan() {
+        val ref = FakeEngine(30) { it.copyOf() }
+        var refCallsAtCreation = -1
+        val fast = FakeEngine(0) { it.copyOf() }
+        val engine = VerifiedEngine(LazyEngine { refCallsAtCreation = ref.calls; fast }, { ref },
+            minSnrDb = 100.0, fastName = "mnn", referenceName = "ort")
+        engine.runBatch(loud, shape)
+        assertEquals(1, refCallsAtCreation)
+        assertEquals("mnn", engine.backend)
+        assertTrue(ref.closed)
+    }
+
+    @Test
+    fun fastEngineMustBeatTheReferenceByTheMargin() {
+        val slightlyFaster = VerifiedEngine(FakeEngine(90) { it.copyOf() }, { FakeEngine(100) { it.copyOf() } },
+            minSnrDb = 100.0, minSpeedup = 1.5)
+        slightlyFaster.runBatch(loud, shape)
+        assertEquals("cpu", slightlyFaster.backend)
+        val muchFaster = VerifiedEngine(FakeEngine(10) { it.copyOf() }, { FakeEngine(100) { it.copyOf() } },
+            minSnrDb = 100.0, minSpeedup = 1.5)
+        muchFaster.runBatch(loud, shape)
+        assertEquals("gpu", muchFaster.backend)
+    }
+
+    @Test
+    fun failingLazyFastEngineFallsBack() {
+        val ref = FakeEngine(30) { it.copyOf() }
+        val engine = VerifiedEngine(LazyEngine { throw IllegalStateException("no MNN") }, { ref },
+            minSnrDb = 100.0, fastName = "mnn", referenceName = "ort")
+        engine.runBatch(loud, shape)
+        engine.runBatch(loud, shape)
+        assertEquals("ort", engine.backend)
+        assertEquals(2, ref.calls)
+    }
 }

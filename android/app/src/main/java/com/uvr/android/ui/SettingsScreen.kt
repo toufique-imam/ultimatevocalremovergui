@@ -84,7 +84,7 @@ fun SettingsScreen(
                                 "beats the CPU (checked once), otherwise the CPU. Very close to desktop UVR but not " +
                                 "identical; a careful listener may hear it on loud vocals. Needs the model's .tflite file."
                         else
-                            "Matches desktop UVR. Runs on the CPU.",
+                            "Matches desktop UVR. Runs on the CPU — faster with the model's .mnn file on most phones.",
                         onSelect = { i -> viewModel.updateParams { p -> p.copy(mdxFastGpu = i == 1) } }
                     )
                 }

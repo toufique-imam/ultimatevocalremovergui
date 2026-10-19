@@ -12,21 +12,21 @@ import kotlin.coroutines.coroutineContext
 /**
  * MDX-Net separator — desktop UVR's SeperateMDX ([MdxPipeline]) streaming from
  * the decoded 44.1 kHz PCM file to two raw stem files, with the model on
- * ONNX Runtime (CPU, FP32) or on the GPU.
+ * the CPU in FP32 (MNN or ONNX Runtime) or on the GPU.
  */
 class MDXSeparator(model: ModelInfo, params: SeparationParams) : Separator(model, params) {
 
     /**
-     * "Exact" ([SeparationParams.mdxFastGpu] off): ONNX Runtime on the CPU, as desktop UVR.
+     * "Exact" ([SeparationParams.mdxFastGpu] off): the CPU in FP32, as desktop UVR — see [cpuEngine].
      * "Fast": GPU (.tflite beside the .onnx, FP16) when available and — checked on the first
-     * non-silent chunk — close enough to and faster than ONNX Runtime on CPU; otherwise the CPU.
+     * non-silent chunk — close enough to and faster than the CPU; otherwise the CPU.
      * FP32 on the GPU is no faster than the CPU for MDX-Net, so the check is by level
      * ([MIN_GPU_SNR_DB]) instead of the per-value FP32 tolerance VR uses.
      */
     override fun buildEngine(): InferenceEngine {
         val file = ModelManager.resolveModelFile(model)
             ?: throw IllegalStateException("Could not resolve model file: ${model.fileName}")
-        val cpu = { OnnxInferenceEngine(file, lowMemory = true) }
+        val cpu = cpuEngine(file)
         if (!params.mdxFastGpu) return VerifiedEngine(null, cpu, tag = tag)
         val meta = model.mdxMeta
         val tflite = ModelManager.resolveCompanionFile(model, "tflite")
@@ -49,6 +49,46 @@ class MDXSeparator(model: ModelInfo, params: SeparationParams) : Separator(model
                 }
             }
         return VerifiedEngine(gpu, cpu, decisionKey = key, minSnrDb = MIN_GPU_SNR_DB, minLevel = MIN_CHECK_LEVEL, tag = tag)
+    }
+
+    /**
+     * The CPU engine, in FP32 either way: MNN (the .mnn beside the .onnx) when it is available and,
+     * checked once on the first non-silent chunk, matches ONNX Runtime to FP32 rounding
+     * ([MIN_MNN_SNR_DB]) and is clearly faster on this phone ([MIN_MNN_SPEEDUP]); otherwise ONNX Runtime.
+     *
+     * For that check MNN is created only after ONNX Runtime has run the chunk (and freed its
+     * activations): each engine needs ~1.4–1.6 GB for Kim_Vocal_2, too much for both at once on
+     * 4 GB phones.
+     */
+    private fun cpuEngine(onnx: File): () -> InferenceEngine {
+        val ort = { OnnxInferenceEngine(onnx, lowMemory = true) }
+        val mnnFile = ModelManager.resolveCompanionFile(model, "mnn") ?: return ort
+        if (!MnnCpuEngine.isAvailable) return ort
+        val key = "mnn:${mnnFile.absolutePath}:${mnnFile.length()}:${mnnFile.lastModified()}"
+        val shape = model.mdxMeta?.let { intArrayOf(1, 4, it.dimF, it.dimT) }
+        val mnn = {
+            MnnCpuEngine(mnnFile).also { engine ->
+                // Models exported with a dynamic batch report -1 there
+                val ok = shape == null || engine.inputShape.size == 4 && (1..3).all { engine.inputShape[it] == shape[it] }
+                if (!ok) {
+                    engine.close()
+                    throw IllegalStateException("MNN model input is ${engine.inputShape.toList()}, not ${shape?.toList()}")
+                }
+            }
+        }
+        return when (VerifiedEngine.decision(key)) {
+            false -> {
+                Log.i(tag, "MNN was slower or inaccurate for this model earlier — ONNX Runtime")
+                ort
+            }
+            true -> {
+                { runCatching(mnn).onFailure { Log.w(tag, "MNN unavailable, using ONNX Runtime: ${it.message}") }.getOrNull() ?: ort() }
+            }
+            null -> {
+                { VerifiedEngine(LazyEngine(mnn), ort, decisionKey = key, minSnrDb = MIN_MNN_SNR_DB, minLevel = MIN_CHECK_LEVEL,
+                    minSpeedup = MIN_MNN_SPEEDUP, fastName = "mnn", referenceName = "ort", tag = tag) }
+            }
+        }
     }
 
     override suspend fun runSeparation(
@@ -129,5 +169,19 @@ class MDXSeparator(model: ModelInfo, params: SeparationParams) : Separator(model
          * near-silence and says nothing about the music.
          */
         const val MIN_CHECK_LEVEL = 0.05
+
+        /**
+         * Lowest MNN-vs-ONNX Runtime output SNR (dB) on the checked chunk for MNN to be used: both are
+         * FP32, so they differ by rounding only (~118 dB on Kim_Vocal_2). MNN's inexact shortcuts
+         * (Winograd: ~80 dB, Strassen: ~90–99 dB) or FP16 (~40 dB) would fail it.
+         */
+        const val MIN_MNN_SNR_DB = 105.0
+
+        /**
+         * MNN must take at most 1/1.1 of ONNX Runtime's time on the checked chunk. It is ~1.25× faster
+         * on a Galaxy M12 (Exynos 850, 8×A55) but ~1.35× slower on a Snapdragon 680 (A73/A53), where
+         * one chunk's timing varied enough (ratio 1.13–1.40) that a plain "faster" could flip.
+         */
+        const val MIN_MNN_SPEEDUP = 1.1
     }
 }

@@ -179,8 +179,8 @@ class MDXSeparator(model: ModelInfo, params: SeparationParams) : Separator(model
 
         /**
          * MNN must take at most 1/1.1 of ONNX Runtime's time on the checked chunk. It is ~1.25× faster
-         * on a Galaxy M12 (Exynos 850, 8×A55) but ~1.35× slower on a Snapdragon 680 (A73/A53), where
-         * one chunk's timing varied enough (ratio 1.13–1.40) that a plain "faster" could flip.
+         * on a Galaxy M12 (Exynos 850, 8×A55) but slower on a Snapdragon 865 (~1.4×) and 680 (~1.35×);
+         * on the 680 one chunk's timing varied enough (ratio 1.05–1.40) that a plain "faster" could flip.
          */
         const val MIN_MNN_SPEEDUP = 1.1
     }

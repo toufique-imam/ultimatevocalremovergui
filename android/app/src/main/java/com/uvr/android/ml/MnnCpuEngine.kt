@@ -6,7 +6,8 @@ import java.io.File
 /**
  * MNN on the CPU in FP32 for the `.mnn` exported next to a model by mnn_export.py — the same
  * math as ONNX Runtime, faster on some phones: Kim_Vocal_2 takes 29 s per chunk instead of 37 on a
- * Galaxy M12 (8×Cortex-A55), but ~1.35× longer on a Snapdragon 680 (A73/A53). Callers check it
+ * Galaxy M12 (8×Cortex-A55), but longer on big out-of-order cores: ~1.35× on a Snapdragon 680 (A73),
+ * ~1.4× on a Snapdragon 865 (A77, Galaxy S20 FE). Callers check it
  * against ONNX Runtime per phone ([VerifiedEngine]).
  *
  * MNN's two inexact shortcuts are off: Winograd 3x3 convolutions (session hint, see uvr_mnn.cpp)

@@ -2612,8 +2612,8 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
 
     def right_click_select_settings_sub(self, parent_menu, process_method):
         saved_settings_sub_menu = tk.Menu(parent_menu, font=(MAIN_FONT_NAME, FONT_SIZE_1), tearoff=False)
-        # The MDX23C preset sets up the main window's MDX-Net, not one process method's settings
-        settings_options = self.last_found_settings + tuple(o for o in SAVE_SET_OPTIONS if o != MDX23C_BEST_QUALITY)
+        # The Best Quality preset sets up the main window's MDX-Net, not one process method's settings
+        settings_options = self.last_found_settings + tuple(o for o in SAVE_SET_OPTIONS if o != BEST_QUALITY_PRESET)
 
         for settings_options in settings_options:
             settings_options = settings_options.replace("_", " ")
@@ -6314,29 +6314,27 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
             self.save_current_settings_var.set(SELECT_SAVED_SET)
             self.load_saved_settings(DEFAULT_DATA, process_method)
 
-        elif selection == MDX23C_BEST_QUALITY:
+        elif selection == BEST_QUALITY_PRESET:
             self.save_current_settings_var.set(SELECT_SAVED_SET)
-            self.load_mdx23c_best_quality()
+            self.load_best_quality_preset()
 
         elif selection == OPT_SEPARATOR_SAVE:
             self.save_current_settings_var.set(SELECT_SAVED_SET)
 
-    def load_mdx23c_best_quality(self):
-        """Switches to MDX-Net with the MDX23C model and settings of the MDX23C Best Quality preset"""
+    def load_best_quality_preset(self):
+        """Switches to MDX-Net with the model and settings of the Best Quality preset"""
 
-        model = next((m for m in self.mdx_net_model_Option['values'] if m == MDX23C_BEST_QUALITY_MODEL), None)
+        model = next((m for m in self.mdx_net_model_Option['values'] if m == BEST_QUALITY_MODEL), None)
         if not model:
-            self.error_dialoge(MDX23C_BEST_QUALITY_MISSING_ERROR)
+            self.error_dialoge(BEST_QUALITY_MISSING_ERROR)
             return
 
-        preset = MDX23C_BEST_QUALITY_DATA
+        preset = BEST_QUALITY_DATA
         self.chosen_process_method_var.set(MDX_ARCH_TYPE)
         self.mdx_net_model_var.set(model)
         self.overlap_mdx23_var.set(preset['overlap_mdx23'])
-        self.is_mdx_c_seg_def_var.set(preset['is_mdx_c_seg_def'])
         self.mdx_batch_size_var.set(preset['mdx_batch_size'])
         self.denoise_option_var.set(preset['denoise_option'])
-        self.is_mdx23_combine_stems_var.set(preset['is_mdx23_combine_stems'])
         self.mdx_is_secondary_model_activate_var.set(preset['mdx_is_secondary_model_activate'])
         self.is_set_vocal_splitter_var.set(preset['is_set_vocal_splitter'])
         self.is_deverb_vocals_var.set(preset['is_deverb_vocals'])
@@ -6345,7 +6343,7 @@ class MainWindow(TkinterDnD.Tk if is_dnd_compatible else tk.Tk):
         self.semitone_shift_var.set(preset['semitone_shift'])
         self.model_sample_mode_var.set(preset['model_sample_mode'])
         self.is_gpu_conversion_var.set(self.is_gpu_available)
-        # Shows MDX-Net's widgets for the MDX23C model, as choosing them in the main window does
+        # Shows MDX-Net's widgets for the preset's model, as choosing them in the main window does
         self.selection_action_process_method(MDX_ARCH_TYPE, is_from_conv_menu=True)
 
     def handle_saved_settings(self, selection, process_method):

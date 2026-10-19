@@ -523,9 +523,9 @@ RESET_TO_DEFAULT = 'Reset to Default'
 RESET_FULL_TO_DEFAULT = 'Reset to Default'
 RESET_PM_TO_DEFAULT = 'Reset All Application Settings to Default'
 
-MDX23C_BEST_QUALITY = 'MDX23C Best Quality'
+BEST_QUALITY_PRESET = 'Best Quality (BS-Roformer)'
 
-SAVE_SET_OPTIONS = [OPT_SEPARATOR_SAVE, MDX23C_BEST_QUALITY, SAVE_SETTINGS, RESET_TO_DEFAULT]
+SAVE_SET_OPTIONS = [OPT_SEPARATOR_SAVE, BEST_QUALITY_PRESET, SAVE_SETTINGS, RESET_TO_DEFAULT]
 
 TIME_PITCH = ('1.0', '2.0', '3.0', '4.0')
 TIME_TEXT = '_time_stretched'
@@ -687,16 +687,15 @@ DEFAULT_DATA = {
         'model_sample_mode_duration': 30
 }
 
-# MDX23C Best Quality preset: the best model of the MUSDB18 benchmark (android/tools/benchmark) at
-# the model's own segment size; GPU Conversion is turned on when a GPU is available
-MDX23C_BEST_QUALITY_MODEL = 'MDX23C-InstVoc HQ'
-MDX23C_BEST_QUALITY_DATA = {
-        'mdx_net_model': MDX23C_BEST_QUALITY_MODEL,
-        'overlap_mdx23': '8',
-        'is_mdx_c_seg_def': True,
+# Best Quality preset: the best model of the MUSDB18 benchmark (android/tools/benchmark), ahead of
+# MDX23C-InstVoc HQ on 41 of 50 songs, at its yaml's overlap (4; 8 is no better); GPU Conversion is
+# turned on when a GPU is available
+BEST_QUALITY_MODEL = 'BS-Roformer-Viperx-1297'
+BEST_QUALITY_DATA = {
+        'mdx_net_model': BEST_QUALITY_MODEL,
+        'overlap_mdx23': DEFAULT,
         'mdx_batch_size': DEF_OPT,
         'denoise_option': DENOISE_NONE,
-        'is_mdx23_combine_stems': True,
         'mdx_is_secondary_model_activate': False,
         'is_set_vocal_splitter': False,
         'is_deverb_vocals': False,
@@ -961,8 +960,8 @@ STOP_HELP = 'Stops ongoing tasks.\n• A confirmation pop-up will appear before 
 SETTINGS_HELP = 'Accesses the main settings and the "Download Center."'
 COMMAND_TEXT_HELP = 'Shows the status and progress of ongoing tasks.'
 SAVE_CURRENT_SETTINGS_HELP = ('Load or save the app\'s settings.\n\n'
-                              f'• {MDX23C_BEST_QUALITY}: MDX-Net with the {MDX23C_BEST_QUALITY_MODEL} model, the best vocal and instrumental separation, '
-                              'but several times slower than the other MDX-Net models.')
+                              f'• {BEST_QUALITY_PRESET}: MDX-Net with the {BEST_QUALITY_MODEL} model, the best vocal and instrumental separation, '
+                              'but much slower than the other MDX-Net models (slower than realtime even on a GPU).')
 PITCH_SHIFT_HELP = ('Choose the pitch for processing tracks:\n\n'
                 '• Whole numbers indicate semitones.\n'
                 '• Using higher pitches may cut the upper bandwidth, even in high-quality models.\n'
@@ -1363,7 +1362,7 @@ EXIT_HALTED_PROCESS_ERROR = 'Halting Process', 'Please wait for the application 
 EXIT_DOWNLOAD_ERROR = 'Active Download', 'Please stop the download or wait for it to complete before you exit.'
 SET_TO_DEFAULT_PROCESS_ERROR = 'Active Process', 'You cannot reset all of the application settings during an active process.'
 SET_TO_ANY_PROCESS_ERROR = 'Active Process', 'You cannot reset the application settings during an active process.'
-MDX23C_BEST_QUALITY_MISSING_ERROR = 'Model Not Installed', f'The {MDX23C_BEST_QUALITY} preset uses the "{MDX23C_BEST_QUALITY_MODEL}" model.\n\nDownload it from the Download Center (MDX-Net models) and select the preset again.'
+BEST_QUALITY_MISSING_ERROR = 'Model Not Installed', f'The {BEST_QUALITY_PRESET} preset uses the "{BEST_QUALITY_MODEL}" model.\n\nDownload it from the Download Center (MDX-Net models) and select the preset again.'
 VIDEO_LINK_PROCESS_ERROR = 'Active Process', 'Please stop the active process or wait for it to complete before processing a video link.'
 VIDEO_LINK_NO_YT_DLP_ERROR = 'yt-dlp Not Installed', 'Processing video links requires yt-dlp.\n\nInstall it with "pip install -U yt-dlp" and restart the application.'
 VIDEO_LINK_NO_FFMPEG_ERROR = 'FFmpeg Not Found', 'Processing video links requires FFmpeg.\n\nPlease install FFmpeg and make sure it is on your PATH.'
